@@ -1,3 +1,10 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "world-map",
+      "description": "A stylized world map for background.",
+      "imageUrl": "https://picsum.photos/seed/map123/1200/800",
+      "imageHint": "world map"
+    }
+  ]
 }

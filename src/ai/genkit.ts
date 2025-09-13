@@ -96,13 +96,26 @@ Please respond with valid JSON that matches this structure. Only return the JSON
   try {
     // Clean up response - remove markdown formatting if present
     const cleanResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+    console.log('Raw AI response:', response);
+    console.log('Cleaned response:', cleanResponse);
+    
     const parsed = JSON.parse(cleanResponse);
+    console.log('Parsed JSON:', parsed);
     
     // Validate against schema
-    return schema.parse(parsed);
+    const validated = schema.parse(parsed);
+    console.log('Validated result:', validated);
+    return validated;
   } catch (error) {
     console.error('Failed to parse or validate response:', error);
     console.error('Raw response:', response);
+    
+    // If it's a Zod validation error, provide more details
+    if (error instanceof z.ZodError) {
+      console.error('Zod validation errors:', error.errors);
+      throw new Error(`Schema validation failed: ${JSON.stringify(error.errors, null, 2)}`);
+    }
+    
     throw new Error(`Failed to generate structured response: ${error}`);
   }
 }
@@ -135,7 +148,7 @@ export function definePrompt<TInput, TOutput>(config: {
   };
 }
 
-// Define flow helper
+// Define flow helper that registers with Genkit
 export function defineFlow<TInput, TOutput>(
   config: {
     name: string;
@@ -144,14 +157,24 @@ export function defineFlow<TInput, TOutput>(
   },
   fn: (input: TInput) => Promise<TOutput>
 ) {
-  return async (input: TInput): Promise<TOutput> => {
-    // Validate input
-    const validatedInput = config.inputSchema.parse(input);
-    
-    // Execute function
-    const result = await fn(validatedInput);
-    
-    // Validate output
-    return config.outputSchema.parse(result);
-  };
+  // Register the flow with Genkit so it appears in the UI
+  const flow = ai.defineFlow(
+    {
+      name: config.name,
+      inputSchema: config.inputSchema,
+      outputSchema: config.outputSchema,
+    },
+    async (input: TInput) => {
+      // Validate input
+      const validatedInput = config.inputSchema.parse(input);
+      
+      // Execute function
+      const result = await fn(validatedInput);
+      
+      // Validate output
+      return config.outputSchema.parse(result);
+    }
+  );
+
+  return flow;
 }

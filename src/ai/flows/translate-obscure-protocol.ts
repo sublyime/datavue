@@ -83,3 +83,6 @@ const translateObscureProtocolFlow = defineFlow(
     return output;
   }
 );
+
+// Export the flow so it gets registered with Genkit
+export { translateObscureProtocolFlow };

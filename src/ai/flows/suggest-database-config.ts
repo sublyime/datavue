@@ -65,14 +65,20 @@ Data Volume: {{dataVolume}}
 Data Velocity: {{dataVelocity}}
 Intended Analysis: {{intendedAnalysis}}
 
-Please respond with a JSON object containing exactly these fields:
+You must respond with EXACTLY this JSON structure (no additional text, no markdown):
+
 {
-  "suggestedDatabaseType": "The recommended database type (e.g., PostgreSQL, MongoDB, TimescaleDB)",
-  "suggestedSettings": "Specific configuration recommendations tailored to the input characteristics",
-  "justification": "Detailed explanation for your choices and why they are appropriate"
+  "suggestedDatabaseType": "Database name (e.g. PostgreSQL, MongoDB, etc.)",
+  "suggestedSettings": "Configuration recommendations as a single text string",
+  "justification": "Explanation of why these choices are appropriate"
 }
 
-Only return the JSON object, no additional text or markdown formatting.`,
+Example response:
+{
+  "suggestedDatabaseType": "PostgreSQL",
+  "suggestedSettings": "Use connection pooling with max 100 connections, enable query optimization, set shared_buffers to 25% of RAM, configure appropriate indexes for time-series queries",
+  "justification": "PostgreSQL is ideal for this use case because it handles structured data well with ACID compliance, supports efficient indexing for analytical queries, and has excellent performance for the specified data volume and velocity."
+}`,
 });
 
 const suggestDatabaseConfigFlow = defineFlow(
@@ -86,3 +92,6 @@ const suggestDatabaseConfigFlow = defineFlow(
     return output;
   }
 );
+
+// Export the flow so it gets registered with Genkit
+export { suggestDatabaseConfigFlow };

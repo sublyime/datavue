@@ -8,8 +8,8 @@
  * - SuggestDatabaseConfigOutput - The return type for the suggestDatabaseConfig function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { definePrompt, defineFlow } from '@/ai/genkit';
+import { z } from 'zod';
 
 const SuggestDatabaseConfigInputSchema = z.object({
   dataVolume: z
@@ -55,20 +55,27 @@ export async function suggestDatabaseConfig(
   return suggestDatabaseConfigFlow(input);
 }
 
-const prompt = ai.definePrompt({
+const prompt = definePrompt({
   name: 'suggestDatabaseConfigPrompt',
   input: {schema: SuggestDatabaseConfigInputSchema},
   output: {schema: SuggestDatabaseConfigOutputSchema},
   prompt: `You are an expert database architect. Based on the provided data volume, velocity, and intended analysis, you will suggest an optimal database configuration.
 
-Data Volume: {{{dataVolume}}}
-Data Velocity: {{{dataVelocity}}}
-Intended Analysis: {{{intendedAnalysis}}}
+Data Volume: {{dataVolume}}
+Data Velocity: {{dataVelocity}}
+Intended Analysis: {{intendedAnalysis}}
 
-Provide a suggested database type, recommended settings, and a justification for your choices.`,
+Please respond with a JSON object containing exactly these fields:
+{
+  "suggestedDatabaseType": "The recommended database type (e.g., PostgreSQL, MongoDB, TimescaleDB)",
+  "suggestedSettings": "Specific configuration recommendations tailored to the input characteristics",
+  "justification": "Detailed explanation for your choices and why they are appropriate"
+}
+
+Only return the JSON object, no additional text or markdown formatting.`,
 });
 
-const suggestDatabaseConfigFlow = ai.defineFlow(
+const suggestDatabaseConfigFlow = defineFlow(
   {
     name: 'suggestDatabaseConfigFlow',
     inputSchema: SuggestDatabaseConfigInputSchema,
@@ -76,6 +83,6 @@ const suggestDatabaseConfigFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    return output;
   }
 );

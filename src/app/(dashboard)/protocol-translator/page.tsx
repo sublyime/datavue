@@ -124,10 +124,9 @@ export default function ProtocolTranslatorPage() {
                 {loading ? 'Translating...' : 'Translate Data'}
               </Button>
             </form>
-          </CardContent>
-        </Card>
+          </Form>
+        </CardContent>
       </Card>
-
       <Card>
         <CardHeader>
           <CardTitle>Translation Result</CardTitle>

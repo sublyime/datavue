@@ -10,7 +10,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  ChartContainer,
   ChartTooltipContent,
+  type ChartConfig,
 } from "@/components/ui/chart";
 
 type DataPoint = {
@@ -61,7 +63,14 @@ export function DynamicChart({
   }, []);
 
   const chartColor = color;
-  const gradientId = useMemo(() => `color-${title.replace(/\s+/g, '-')}`, [title]);
+
+  const chartConfig = {
+    value: {
+      label: yAxisLabel,
+      color: chartColor,
+    },
+  } satisfies ChartConfig;
+
 
   return (
     <Card>
@@ -71,12 +80,12 @@ export function DynamicChart({
       </CardHeader>
       <CardContent>
         <div className="h-[250px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ChartContainer config={chartConfig} className="h-full w-full">
             <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={chartColor} stopOpacity={0.8} />
-                  <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                <linearGradient id={`color-${yAxisLabel}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--color-value)" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="var(--color-value)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -96,14 +105,14 @@ export function DynamicChart({
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke={chartColor}
+                stroke="var(--color-value)"
                 strokeWidth={2}
                 fillOpacity={1}
-                fill={`url(#${gradientId})`}
+                fill={`url(#color-${yAxisLabel})`}
                 isAnimationActive={false}
               />
             </AreaChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         </div>
       </CardContent>
     </Card>

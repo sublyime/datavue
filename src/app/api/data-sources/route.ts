@@ -1,8 +1,10 @@
+// app/api/data-sources/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { dataSources } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
+import { DataSourceManager } from '@/lib/data-sources/manager';
 
 // GET /api/data-sources - List all data sources
 export async function GET(request: NextRequest) {
@@ -11,17 +13,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'data_sources', 'read')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
     const sources = await db.query.dataSources.findMany({
-      where: eq(dataSources.isActive, true),
+      orderBy: (dataSources, { desc }) => [desc(dataSources.createdAt)],
     });
 
-    return NextResponse.json({ data: sources });
+    const manager = DataSourceManager.getInstance();
+    const activeSources = manager.getActiveSources();
+
+    // Merge database config with runtime status
+    const sourcesWithStatus = sources.map(source => ({
+      ...source,
+      runtimeStatus: activeSources.find(s => s.id === source.id)?.status || { isRunning: false },
+    }));
+
+    return NextResponse.json({ data: sourcesWithStatus });
   } catch (error) {
     console.error('Error fetching data sources:', error);
     return NextResponse.json({ error: 'Failed to fetch data sources' }, { status: 500 });
@@ -35,7 +45,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'data_sources', 'create')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
@@ -47,9 +56,16 @@ export async function POST(request: NextRequest) {
       name: body.name,
       type: body.type,
       protocol: body.protocol,
-      config: body.config,
+      config: body.config || {},
+      isActive: body.isActive !== false,
       userId: authResult.user.id,
     }).returning();
+
+    // Start the new data source if it's active
+    if (newSource[0].isActive) {
+      const manager = DataSourceManager.getInstance();
+      await manager.startSource(newSource[0]);
+    }
 
     return NextResponse.json({ data: newSource[0] }, { status: 201 });
   } catch (error) {

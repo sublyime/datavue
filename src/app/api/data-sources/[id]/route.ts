@@ -1,8 +1,10 @@
+// app/api/data-sources/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { dataSources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
+import { DataSourceManager } from '@/lib/data-sources/manager';
 
 // GET /api/data-sources/[id] - Get a specific data source
 export async function GET(
@@ -14,7 +16,6 @@ export async function GET(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'data_sources', 'read')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
@@ -28,7 +29,11 @@ export async function GET(
       return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ data: source });
+    const manager = DataSourceManager.getInstance();
+    const activeSources = manager.getActiveSources();
+    const runtimeStatus = activeSources.find(s => s.id === source.id)?.status || { isRunning: false };
+
+    return NextResponse.json({ data: { ...source, runtimeStatus } });
   } catch (error) {
     console.error('Error fetching data source:', error);
     return NextResponse.json({ error: 'Failed to fetch data source' }, { status: 500 });
@@ -45,13 +50,13 @@ export async function PUT(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'data_sources', 'update')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
     const body = await request.json();
+    const sourceId = parseInt(params.id);
     
     const updatedSource = await db.update(dataSources)
       .set({
@@ -62,11 +67,20 @@ export async function PUT(
         isActive: body.isActive,
         updatedAt: new Date(),
       })
-      .where(eq(dataSources.id, parseInt(params.id)))
+      .where(eq(dataSources.id, sourceId))
       .returning();
 
     if (updatedSource.length === 0) {
       return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
+    }
+
+    const manager = DataSourceManager.getInstance();
+    
+    // Restart the source if it was active and configuration changed
+    if (body.isActive) {
+      await manager.restartSource(sourceId);
+    } else {
+      await manager.stopSource(sourceId);
     }
 
     return NextResponse.json({ data: updatedSource[0] });
@@ -86,14 +100,19 @@ export async function DELETE(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'data_sources', 'delete')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
+    const sourceId = parseInt(params.id);
+    
+    // Stop the source first
+    const manager = DataSourceManager.getInstance();
+    await manager.stopSource(sourceId);
+
     const deletedSource = await db.delete(dataSources)
-      .where(eq(dataSources.id, parseInt(params.id)))
+      .where(eq(dataSources.id, sourceId))
       .returning();
 
     if (deletedSource.length === 0) {

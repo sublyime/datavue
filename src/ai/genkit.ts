@@ -1,3 +1,4 @@
+// src/ai/genkit.ts
 import { genkit } from 'genkit';
 import { z } from 'zod';
 
@@ -116,7 +117,7 @@ Please respond with valid JSON that matches this structure. Only return the JSON
       throw new Error(`Schema validation failed: ${JSON.stringify(error.errors, null, 2)}`);
     }
     
-    throw new Error(`Failed to generate structured response: ${error}`);
+    throw new Error(`Failed to generate structured response: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

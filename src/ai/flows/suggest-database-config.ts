@@ -2,10 +2,6 @@
 
 /**
  * @fileOverview Provides database configuration suggestions based on data characteristics.
- *
- * - suggestDatabaseConfig - A function that returns database configuration suggestions.
- * - SuggestDatabaseConfigInput - The input type for the suggestDatabaseConfig function.
- * - SuggestDatabaseConfigOutput - The return type for the suggestDatabaseConfig function.
  */
 
 import { definePrompt, defineFlow } from '@/ai/genkit';
@@ -27,6 +23,10 @@ const SuggestDatabaseConfigInputSchema = z.object({
     .describe(
       'A description of the types of analysis to be performed on the data (e.g., "real-time dashboards", "ad-hoc queries", "complex statistical analysis").'
     ),
+  // Add optional fields that might be used in the API
+  requirements: z.string().optional().describe('General requirements for the database'),
+  performanceNeeds: z.string().optional().describe('Performance requirements'),
+  budgetConstraints: z.string().optional().describe('Budget constraints'),
 });
 export type SuggestDatabaseConfigInput = z.infer<
   typeof SuggestDatabaseConfigInputSchema
@@ -64,6 +64,9 @@ const prompt = definePrompt({
 Data Volume: {{dataVolume}}
 Data Velocity: {{dataVelocity}}
 Intended Analysis: {{intendedAnalysis}}
+{{#if requirements}}Requirements: {{requirements}}{{/if}}
+{{#if performanceNeeds}}Performance Needs: {{performanceNeeds}}{{/if}}
+{{#if budgetConstraints}}Budget Constraints: {{budgetConstraints}}{{/if}}
 
 You must respond with EXACTLY this JSON structure (no additional text, no markdown):
 

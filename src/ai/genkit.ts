@@ -1,5 +1,5 @@
 import { genkit } from 'genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 
 // Custom Ollama client
 class OllamaClient {
@@ -73,13 +73,13 @@ class OllamaClient {
   }
 }
 
-// Initialize Genkit without plugins
+// Initialize Genkit with empty configuration
 export const ai = genkit({
-  plugins: [],
+  // Empty configuration object
 });
 
 // Export Ollama client instance
-export const ollama = new OllamaClient();
+export const customOllama = new OllamaClient();
 
 // Helper function for structured generation
 export async function generateStructured<T>(
@@ -91,7 +91,7 @@ export async function generateStructured<T>(
 
 Please respond with valid JSON that matches this structure. Only return the JSON object, no additional text or markdown formatting.`;
 
-  const response = await ollama.generate(enhancedPrompt, model);
+  const response = await customOllama.generate(enhancedPrompt, model);
   
   try {
     // Clean up response - remove markdown formatting if present
@@ -133,11 +133,32 @@ export function definePrompt<TInput, TOutput>(config: {
     
     // Simple template replacement for {{variable}} syntax
     Object.entries(input as Record<string, any>).forEach(([key, value]) => {
-      processedPrompt = processedPrompt.replace(
-        new RegExp(`{{${key}}}`, 'g'),
-        String(value)
-      );
+      if (value !== undefined && value !== null) {
+        processedPrompt = processedPrompt.replace(
+          new RegExp(`{{${key}}}`, 'g'),
+          String(value)
+        );
+        
+        // Handle conditional blocks with regex (compatible with ES2017)
+        const ifRegex = new RegExp(`{{#if ${key}}}(.*?){{/if}}`, 'g');
+        let match;
+        while ((match = ifRegex.exec(processedPrompt)) !== null) {
+          const [fullMatch, content] = match;
+          processedPrompt = processedPrompt.replace(
+            fullMatch,
+            value ? content : ''
+          );
+          // Reset regex index to avoid infinite loops
+          ifRegex.lastIndex = 0;
+        }
+      }
     });
+
+    // Remove any remaining conditional blocks with undefined variables
+    processedPrompt = processedPrompt.replace(/{{#if \w+}}.*?{{\/if}}/g, '');
+    
+    // Remove any remaining template variables that weren't replaced
+    processedPrompt = processedPrompt.replace(/{{[^{}]*}}/g, '');
 
     const output = await generateStructured(
       processedPrompt,

@@ -3,27 +3,43 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 
-// Create a function to initialize the database connection
-function createDbClient() {
-  const connectionString = process.env.DATABASE_URL;
+// Database connection with your credentials
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:ala1nna@localhost:5432/visual_historian';
 
-  if (!connectionString) {
-    // Don't throw error immediately - just return null
-    console.warn('⚠️ DATABASE_URL environment variable is not set');
-    return null;
+// Create the connection
+const client = postgres(connectionString, {
+  max: 10,
+  idle_timeout: 20,
+  connect_timeout: 10,
+});
+
+// Create the drizzle instance
+export const db = drizzle(client, { schema });
+
+// For raw SQL queries if needed
+export const sql = client;
+
+// Close connection (for cleanup)
+export const closeConnection = () => client.end();
+
+// Test connection function
+export async function testConnection() {
+  try {
+    const result = await client`SELECT 1 as test`;
+    console.log('Database connection successful:', result);
+    return true;
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    return false;
   }
-
-  console.log('🔗 Database URL:', connectionString);
-  const client = postgres(connectionString);
-  return drizzle(client, { schema });
 }
 
-// Create the db instance
-export const db = createDbClient();
-
-// Export a function to check if db is connected
-export function isDbConnected() {
-  return db !== null;
+// src/lib/db/raw.ts - for raw SQL execution
+export async function execute(query: string, params: any[] = []) {
+  try {
+    return await client.unsafe(query, params);
+  } catch (error) {
+    console.error('Database query error:', error);
+    throw error;
+  }
 }
-
-export type Database = typeof db;

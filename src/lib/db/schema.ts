@@ -1,101 +1,126 @@
-import { pgTable, text, serial, integer, boolean, jsonb, timestamp, varchar, pgEnum } from 'drizzle-orm/pg-core';
+// src/lib/db/schema.ts
+import { 
+  pgTable, 
+  serial, 
+  varchar, 
+  text, 
+  boolean, 
+  timestamp, 
+  integer, 
+  jsonb,
+  real,
+  index
+} from 'drizzle-orm/pg-core';
 
-// Enum for data source types
-export const dataSourceTypeEnum = pgEnum('data_source_type', [
-  'SERIAL', 'USB', 'FILE', 'TCP', 'UDP', 'API', 'MODBUS', 'OPC', 'MQTT', 'NMEA', 'HART', 'ANALOG'
-]);
-
-// Enum for protocol types
-export const protocolTypeEnum = pgEnum('protocol_type', [
-  'OSI_PI', 'OPC', 'MODBUS', 'MQTT', 'NMEA', 'HART', 'ANALOG_4_20mA', 'ANALOG_0_5V', 'CUSTOM'
-]);
-
-// Enum for storage types
-export const storageTypeEnum = pgEnum('storage_type', [
-  'POSTGRESQL', 'MYSQL', 'MONGODB', 'SQLSERVER', 'SQLITE',
-  'AZURE_BLOB', 'AWS_S3', 'GOOGLE_CLOUD_STORAGE', 'FIRESTORE', 'TIMESCALE'
-]);
-
-// User roles enum
-export const userRoleEnum = pgEnum('user_role', [
-  'ADMIN',
-  'USER',
-  'VIEWER',
-  'OPERATOR'
-]);
-
-// Users table - SINGLE DEFINITION
+// Users table
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   password: varchar('password', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
-  role: userRoleEnum('role').notNull().default('USER'),
+  role: varchar('role', { length: 50 }).notNull().default('USER'),
   isActive: boolean('is_active').notNull().default(true),
-  lastLogin: timestamp('last_login'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Sessions table
+export const sessions = pgTable('sessions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 // Data sources configuration
 export const dataSources = pgTable('data_sources', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  type: dataSourceTypeEnum('type').notNull(),
-  protocol: protocolTypeEnum('protocol').notNull(),
-  config: jsonb('config').notNull(),
+  type: varchar('type', { length: 50 }).notNull(), // SERIAL, TCP, UDP, API, etc.
+  protocol: varchar('protocol', { length: 50 }).notNull(), // MODBUS, MQTT, NMEA, etc.
+  config: jsonb('config').notNull().default({}), // Protocol-specific configuration
   isActive: boolean('is_active').notNull().default(true),
-  userId: integer('user_id').references(() => users.id),
+  userId: integer('user_id').notNull().references(() => users.id),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index('data_sources_user_id_idx').on(table.userId),
+  typeIdx: index('data_sources_type_idx').on(table.type),
+  protocolIdx: index('data_sources_protocol_idx').on(table.protocol),
+}));
+
+// Data points - the actual time-series data
+export const dataPoints = pgTable('data_points', {
+  id: serial('id').primaryKey(),
+  sourceId: integer('source_id').notNull().references(() => dataSources.id, { onDelete: 'cascade' }),
+  tagName: varchar('tag_name', { length: 255 }).notNull(), // The variable/sensor name
+  value: jsonb('value').notNull(), // The actual value (can be any type)
+  quality: integer('quality').notNull().default(192), // OPC-style quality code
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+  location: jsonb('location'), // Optional GPS coordinates
+  metadata: jsonb('metadata'), // Additional metadata
+}, (table) => ({
+  sourceIdIdx: index('data_points_source_id_idx').on(table.sourceId),
+  tagNameIdx: index('data_points_tag_name_idx').on(table.tagName),
+  timestampIdx: index('data_points_timestamp_idx').on(table.timestamp),
+  sourceTagTimeIdx: index('data_points_source_tag_time_idx').on(
+    table.sourceId, 
+    table.tagName, 
+    table.timestamp
+  ),
+}));
 
 // Storage configurations
 export const storageConfigs = pgTable('storage_configs', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  type: storageTypeEnum('type').notNull(),
-  config: jsonb('config').notNull(),
+  type: varchar('type', { length: 50 }).notNull(), // POSTGRESQL, INFLUXDB, MONGODB, etc.
+  config: jsonb('config').notNull().default({}),
   isDefault: boolean('is_default').notNull().default(false),
-  userId: integer('user_id').references(() => users.id),
+  userId: integer('user_id').notNull().references(() => users.id),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Data points table
-export const dataPoints = pgTable('data_points', {
+// Audit log for tracking changes
+export const auditLogs = pgTable('audit_logs', {
   id: serial('id').primaryKey(),
-  sourceId: integer('source_id').references(() => dataSources.id),
-  tagName: varchar('tag_name', { length: 255 }).notNull(),
-  value: jsonb('value').notNull(),
-  quality: integer('quality').notNull().default(0),
+  userId: integer('user_id').references(() => users.id),
+  action: varchar('action', { length: 50 }).notNull(), // CREATE, UPDATE, DELETE, START, STOP
+  resource: varchar('resource', { length: 50 }).notNull(), // data_source, user, etc.
+  resourceId: integer('resource_id'),
+  oldValues: jsonb('old_values'),
+  newValues: jsonb('new_values'),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: text('user_agent'),
   timestamp: timestamp('timestamp').notNull().defaultNow(),
-  location: jsonb('location'),
-  metadata: jsonb('metadata'),
-});
+}, (table) => ({
+  userIdIdx: index('audit_logs_user_id_idx').on(table.userId),
+  resourceIdx: index('audit_logs_resource_idx').on(table.resource, table.resourceId),
+  timestampIdx: index('audit_logs_timestamp_idx').on(table.timestamp),
+}));
 
-// Data point metadata
-export const dataPointMetadata = pgTable('data_point_metadata', {
+// System metrics for monitoring
+export const systemMetrics = pgTable('system_metrics', {
   id: serial('id').primaryKey(),
-  dataPointId: integer('data_point_id').references(() => dataPoints.id),
-  key: varchar('key', { length: 255 }).notNull(),
-  value: jsonb('value').notNull(),
-});
+  metricName: varchar('metric_name', { length: 100 }).notNull(),
+  value: real('value').notNull(),
+  unit: varchar('unit', { length: 20 }),
+  tags: jsonb('tags').default({}), // Additional dimensions
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+}, (table) => ({
+  metricNameIdx: index('system_metrics_metric_name_idx').on(table.metricName),
+  timestampIdx: index('system_metrics_timestamp_idx').on(table.timestamp),
+}));
 
-// User sessions for authentication - SINGLE DEFINITION
-export const sessions = pgTable('sessions', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id),
-  token: varchar('token', { length: 255 }).notNull().unique(),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-});
-
-// User permissions
-export const userPermissions = pgTable('user_permissions', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id),
-  resource: varchar('resource', { length: 255 }).notNull(),
-  action: varchar('action', { length: 50 }).notNull(),
-  conditions: jsonb('conditions'),
-});
+// Export types
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type DataSource = typeof dataSources.$inferSelect;
+export type NewDataSource = typeof dataSources.$inferInsert;
+export type DataPoint = typeof dataPoints.$inferSelect;
+export type NewDataPoint = typeof dataPoints.$inferInsert;
+export type StorageConfig = typeof storageConfigs.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;

@@ -1,17 +1,13 @@
 // drizzle.config.ts
-import { defineConfig } from 'drizzle-kit';
-import { config } from 'dotenv';
-import { resolve } from 'path';
+import type { Config } from 'drizzle-kit';
 
-// Load environment variables
-const envPath = resolve(process.cwd(), '.env');
-config({ path: envPath });
-
-export default defineConfig({
-  dialect: 'postgresql',
+export default {
   schema: './src/lib/db/schema.ts',
   out: './drizzle',
+  driver: 'pg',
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:ala1nna@localhost:5432/visual_historian',
   },
-});
+  verbose: true,
+  strict: true,
+} satisfies Config;

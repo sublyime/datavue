@@ -1,4 +1,5 @@
 // src/components/sidebar-nav.tsx
+
 'use client';
 
 import { useState } from 'react';
@@ -16,7 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth } from '@/components/providers';
 import {
   SidebarContent,
   SidebarGroup,
@@ -38,7 +39,26 @@ import {
 } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
-const navigation = [
+// ✅ FIXED: Define proper TypeScript interfaces
+interface NavItemBase {
+  title: string;
+  href: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+}
+
+interface NavItemWithSub extends NavItemBase {
+  subItems: NavItemBase[];
+}
+
+type NavItem = NavItemBase | NavItemWithSub;
+
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
+
+// ✅ FIXED: Properly typed navigation array
+const navigation: NavGroup[] = [
   {
     title: 'Overview',
     items: [
@@ -80,20 +100,28 @@ const navigation = [
           {
             title: 'Users',
             href: '/settings#users',
+            icon: User,
           },
           {
             title: 'Permissions',
             href: '/settings#permissions',
+            icon: Shield,
           },
           {
             title: 'Billing',
             href: '/settings#billing',
+            icon: HardDrive,
           },
         ],
       },
     ],
   },
 ];
+
+// ✅ FIXED: Type guard function
+function isNavItemWithSub(item: NavItem): item is NavItemWithSub {
+  return 'subItems' in item;
+}
 
 export function SidebarNav() {
   const pathname = usePathname();
@@ -123,16 +151,9 @@ export function SidebarNav() {
 
   return (
     <>
-      <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-            <BarChart3 className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold">DataVue</span>
-            <span className="text-xs text-sidebar-foreground/70">Visual Historian</span>
-          </div>
-        </div>
+      <SidebarHeader>
+        <h2 className="text-lg font-semibold">DataVue</h2>
+        <p className="text-sm text-muted-foreground">Visual Historian</p>
       </SidebarHeader>
 
       <SidebarContent>
@@ -143,9 +164,9 @@ export function SidebarNav() {
               <SidebarMenu>
                 {group.items.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                  const hasSubItems = item.subItems && item.subItems.length > 0;
-
-                  if (hasSubItems) {
+                  
+                  // ✅ FIXED: Use type guard to check for subItems
+                  if (isNavItemWithSub(item)) {
                     return (
                       <Collapsible
                         key={item.title}
@@ -154,22 +175,21 @@ export function SidebarNav() {
                       >
                         <SidebarMenuItem>
                           <CollapsibleTrigger asChild>
-                            <SidebarMenuButton className={cn(isActive && "bg-sidebar-accent")}>
+                            <SidebarMenuButton>
                               <item.icon className="h-4 w-4" />
-                              {item.title}
-                              <ChevronRight className={cn(
-                                "ml-auto h-4 w-4 transition-transform",
-                                openGroups[item.title] && "rotate-90"
-                              )} />
+                              <span>{item.title}</span>
+                              <ChevronRight className="ml-auto h-4 w-4" />
                             </SidebarMenuButton>
                           </CollapsibleTrigger>
                           <CollapsibleContent>
                             <SidebarMenuSub>
-                              {item.subItems?.map((subItem) => (
+                              {/* ✅ FIXED: Properly typed subItem parameter */}
+                              {item.subItems.map((subItem: NavItemBase) => (
                                 <SidebarMenuSubItem key={subItem.title}>
                                   <SidebarMenuSubButton asChild>
                                     <Link href={subItem.href}>
-                                      {subItem.title}
+                                      <subItem.icon className="h-4 w-4" />
+                                      <span>{subItem.title}</span>
                                     </Link>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
@@ -181,12 +201,13 @@ export function SidebarNav() {
                     );
                   }
 
+                  // Regular navigation item without subItems
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild className={cn(isActive && "bg-sidebar-accent")}>
+                      <SidebarMenuButton asChild isActive={isActive}>
                         <Link href={item.href}>
                           <item.icon className="h-4 w-4" />
-                          {item.title}
+                          <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -198,29 +219,26 @@ export function SidebarNav() {
         ))}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border">
+      <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex items-center gap-3 px-3 py-2">
+            <div className="flex items-center space-x-2 p-2">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={`https://avatar.vercel.sh/${user.email}`} />
+                <AvatarImage src={user.email} />
                 <AvatarFallback>
                   {user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-1 flex-col min-w-0">
-                <span className="text-sm font-medium truncate">{user.name}</span>
-                <div className="flex items-center gap-1">
-                  <Shield className="h-3 w-3 text-sidebar-foreground/70" />
-                  <span className="text-xs text-sidebar-foreground/70">{user.role}</span>
-                </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{user.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{user.role}</p>
               </div>
             </div>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleLogout} className="text-sidebar-foreground/70 hover:text-sidebar-foreground">
+            <SidebarMenuButton onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
-              Logout
+              <span>Logout</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

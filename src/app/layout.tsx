@@ -1,30 +1,26 @@
-import type { Metadata } from "next";
-import { Toaster } from "@/components/ui/toaster";
-import "./globals.css";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import { Providers } from '@/components/providers';
+import './globals.css';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "DataVue",
-  description: "A visual data historian for modern industrial applications.",
+  title: 'DataVue - Visual Historian',
+  description: 'Real-time data visualization and monitoring dashboard',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="font-body antialiased">
-        {children}
-        <Toaster />
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

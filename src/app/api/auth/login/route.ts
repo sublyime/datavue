@@ -1,7 +1,8 @@
-// app/api/auth/login/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { execute } from '@/lib/db/raw';
-import * as bcrypt from 'bcrypt';
+import { db } from '@/lib/db';
+import { users, sessions } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+import bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 
 export async function POST(request: NextRequest) {
@@ -9,63 +10,56 @@ export async function POST(request: NextRequest) {
     const { email, password } = await request.json();
 
     if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
+      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Find user using raw SQL
-    const userResult = await execute(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
-    const user = userResult.rows[0] as any;
+    // Find user by email
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
 
-    if (!user) {
+    if (!user || !user.isActive) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    if (!user.is_active) {
-      return NextResponse.json({ error: 'Account disabled' }, { status: 401 });
-    }
-
-    // Check password
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) {
+    // Verify password
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
     // Create session
     const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    await execute(
-      'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
-      [user.id, token, expiresAt]
-    );
+    await db.insert(sessions).values({
+      userId: user.id,
+      token,
+      expiresAt,
+    });
 
     // Set cookie
-    const response = NextResponse.json({ 
-      message: 'Login successful',
+    const response = NextResponse.json({
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role
-      }
+        role: user.role,
+        isActive: user.isActive,
+      },
     });
 
     response.cookies.set('session-token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      expires: expiresAt,
-      path: '/'
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+      path: '/',
     });
 
     return response;
-
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: 'Login failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

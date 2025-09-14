@@ -21,7 +21,11 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@/ai/*": ["./src/ai/*"]
+      "@/ai/*": ["./src/ai/*"],
+      "@/components/*": ["./src/components/*"],
+      "@/hooks/*": ["./src/hooks/*"],
+      "@/lib/*": ["./src/lib/*"],
+      "@/middleware/*": ["./src/middleware/*"]
     },
     "plugins": [
       {

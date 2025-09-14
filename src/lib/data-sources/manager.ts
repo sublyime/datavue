@@ -25,6 +25,30 @@ interface ActiveDataSource {
   errorsCount: number;
 }
 
+// FIXED: More flexible config interface that accepts mixed types and will be normalized
+interface MergedConfig {
+  [key: string]: any;
+  // Allow mixed types that will be normalized - common when configs come from JSON/DB
+  host?: string;
+  hostname?: string;
+  port?: number | string;
+  tcpPort?: number | string;
+  serverPort?: number | string;
+  timeout?: number | string;
+  connectionTimeout?: number | string;
+  unitId?: number | string;
+  slaveId?: number | string;
+  pollInterval?: number | string;
+  maxRetries?: number | string;
+  registers?: any[];
+  brokerUrl?: string;
+  secure?: boolean | string;
+  topics?: any[];
+  endpoint?: string | number; // FIXED: Allow number which can be converted to string
+  url?: string | number; // FIXED: Allow number which can be converted to string  
+  method?: string;
+}
+
 export class DataSourceManager extends EventEmitter {
   private static instance: DataSourceManager;
   private activeSources: Map<number, ActiveDataSource> = new Map();
@@ -440,18 +464,196 @@ export class DataSourceManager extends EventEmitter {
     }
   }
 
-  // CRITICAL FIX: Properly combine configs for legacy sources
+  // FIXED: Type-safe conversion utilities
+  private toNumber(value: any, defaultValue: number): number {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return isNaN(parsed) ? defaultValue : parsed;
+    }
+    return defaultValue;
+  }
+
+  private toString(value: any, defaultValue: string = ''): string {
+    if (typeof value === 'string') return value;
+    if (value !== null && value !== undefined) return String(value);
+    return defaultValue;
+  }
+
+  private toBoolean(value: any, defaultValue: boolean = false): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const lowered = value.toLowerCase();
+      return lowered === 'true' || lowered === '1' || lowered === 'yes';
+    }
+    if (typeof value === 'number') return value !== 0;
+    return defaultValue;
+  }
+
+  // FIXED: Type-safe config normalization
+  private normalizeConfig(config: MergedConfig): MergedConfig {
+    const normalized: MergedConfig = { ...config };
+
+    // Normalize numeric fields
+    if (normalized.port !== undefined) {
+      normalized.port = this.toNumber(normalized.port, 80);
+    }
+    if (normalized.tcpPort !== undefined) {
+      normalized.tcpPort = this.toNumber(normalized.tcpPort, 80);
+    }
+    if (normalized.serverPort !== undefined) {
+      normalized.serverPort = this.toNumber(normalized.serverPort, 80);
+    }
+    if (normalized.timeout !== undefined) {
+      normalized.timeout = this.toNumber(normalized.timeout, 5000);
+    }
+    if (normalized.connectionTimeout !== undefined) {
+      normalized.connectionTimeout = this.toNumber(normalized.connectionTimeout, 5000);
+    }
+    if (normalized.unitId !== undefined) {
+      normalized.unitId = this.toNumber(normalized.unitId, 1);
+    }
+    if (normalized.slaveId !== undefined) {
+      normalized.slaveId = this.toNumber(normalized.slaveId, 1);
+    }
+    if (normalized.pollInterval !== undefined) {
+      normalized.pollInterval = this.toNumber(normalized.pollInterval, 1000);
+    }
+    if (normalized.maxRetries !== undefined) {
+      normalized.maxRetries = this.toNumber(normalized.maxRetries, 3);
+    }
+
+    // Normalize string fields
+    if (normalized.endpoint !== undefined) {
+      normalized.endpoint = this.toString(normalized.endpoint);
+    }
+    if (normalized.url !== undefined) {
+      normalized.url = this.toString(normalized.url);
+    }
+    if (normalized.brokerUrl !== undefined) {
+      normalized.brokerUrl = this.toString(normalized.brokerUrl);
+    }
+    if (normalized.host !== undefined) {
+      normalized.host = this.toString(normalized.host);
+    }
+    if (normalized.hostname !== undefined) {
+      normalized.hostname = this.toString(normalized.hostname);
+    }
+    if (normalized.method !== undefined) {
+      normalized.method = this.toString(normalized.method, 'GET');
+    }
+
+    // Normalize boolean fields
+    if (normalized.secure !== undefined) {
+      normalized.secure = this.toBoolean(normalized.secure, false);
+    }
+
+    return normalized;
+  }
+
+  // CRITICAL FIX: Type-safe config combination with proper normalization
   private combineConfigs(config: DataSourceConfig): any {
-    // Deep merge all config objects to create a comprehensive merged config
-    const mergedConfig = this.deepMerge(
-      {},
-      config.interface.config || {},
-      config.protocol.config || {},
-      config.dataSource.customConfig || {}
-    );
+    // Start with a base merged config using type-safe access
+    let mergedConfig: MergedConfig = {
+      ...config.interface.config,
+      ...config.protocol.config,
+      ...config.dataSource.customConfig,
+    };
+
+    // FIXED: Normalize all config values to ensure correct types
+    mergedConfig = this.normalizeConfig(mergedConfig);
+
+    // SPECIFIC FIXES for TCP/MODBUS_TCP combinations using safe property access
+    if (config.interface.type === 'TCP') {
+      // Ensure TCP sources have required fields with sensible defaults
+      if (!mergedConfig.host && !mergedConfig.hostname) {
+        mergedConfig.host = mergedConfig.host || mergedConfig.hostname || 'localhost';
+      }
+      
+      // CRITICAL: Ensure port is always present for TCP connections as a NUMBER
+      if (!mergedConfig.port && !mergedConfig.tcpPort && !mergedConfig.serverPort) {
+        // Set default ports based on protocol
+        if (config.protocol.type === 'MODBUS_TCP') {
+          mergedConfig.port = 502;
+        } else if (config.protocol.type === 'MQTT') {
+          mergedConfig.port = 1883;
+        } else if (config.protocol.type === 'OPC_UA') {
+          mergedConfig.port = 4840;
+        } else if (config.protocol.type === 'API_REST' || config.protocol.type === 'API_SOAP') {
+          mergedConfig.port = mergedConfig.secure ? 443 : 80;
+        } else {
+          mergedConfig.port = 80; // Default fallback
+        }
+      }
+      
+      if (!mergedConfig.timeout && !mergedConfig.connectionTimeout) {
+        mergedConfig.timeout = mergedConfig.timeout || mergedConfig.connectionTimeout || 5000;
+      }
+    }
+
+    // MODBUS protocol specific defaults with safe property access
+    if (config.protocol.type === 'MODBUS_TCP' || config.protocol.type === 'MODBUS_RTU') {
+      // Ensure Modbus sources have required fields
+      if (!mergedConfig.unitId && !mergedConfig.slaveId) {
+        mergedConfig.unitId = mergedConfig.unitId || mergedConfig.slaveId || 1;
+      }
+      
+      if (!mergedConfig.pollInterval) {
+        mergedConfig.pollInterval = mergedConfig.pollInterval || 1000;
+      }
+      
+      if (!mergedConfig.maxRetries) {
+        mergedConfig.maxRetries = mergedConfig.maxRetries || 3;
+      }
+
+      // Ensure registers array exists
+      if (!mergedConfig.registers) {
+        mergedConfig.registers = [
+          {
+            address: 40001,
+            type: 'holding',
+            length: 1,
+            tagName: 'default_register',
+            dataType: 'uint16'
+          }
+        ];
+      }
+    }
+
+    // MQTT protocol specific defaults with safe property access
+    if (config.protocol.type === 'MQTT') {
+      if (!mergedConfig.brokerUrl && mergedConfig.host) {
+        const protocol = mergedConfig.secure ? 'mqtts' : 'mqtt';
+        const port = mergedConfig.port || (mergedConfig.secure ? 8883 : 1883);
+        mergedConfig.brokerUrl = `${protocol}://${mergedConfig.host}:${port}`;
+      }
+      
+      if (!mergedConfig.topics) {
+        mergedConfig.topics = ['sensors/+/data'];
+      }
+    }
+
+    // API protocol specific defaults with safe property access
+    if (config.protocol.type === 'API_REST' || config.protocol.type === 'API_SOAP') {
+      if (!mergedConfig.endpoint && !mergedConfig.url) {
+        const protocol = mergedConfig.secure || mergedConfig.port === 443 ? 'https' : 'http';
+        const host = mergedConfig.host || 'localhost';
+        const port = mergedConfig.port && mergedConfig.port !== 80 && mergedConfig.port !== 443 ? `:${mergedConfig.port}` : '';
+        mergedConfig.endpoint = mergedConfig.endpoint || mergedConfig.url || `${protocol}://${host}${port}`;
+      }
+      
+      if (!mergedConfig.method) {
+        mergedConfig.method = 'GET';
+      }
+      
+      if (!mergedConfig.pollInterval) {
+        mergedConfig.pollInterval = 10000;
+      }
+    }
 
     console.log(`🔧 Combined config for ${config.name}:`, JSON.stringify(mergedConfig, null, 2));
 
+    // Return the legacy format that data sources expect
     return {
       id: config.id,
       name: config.name,
@@ -463,29 +665,6 @@ export class DataSourceManager extends EventEmitter {
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     };
-  }
-
-  // Helper method for deep merging objects
-  private deepMerge(target: any, ...sources: any[]): any {
-    if (!sources.length) return target;
-    const source = sources.shift();
-
-    if (this.isObject(target) && this.isObject(source)) {
-      for (const key in source) {
-        if (this.isObject(source[key])) {
-          if (!target[key]) Object.assign(target, { [key]: {} });
-          this.deepMerge(target[key], source[key]);
-        } else {
-          Object.assign(target, { [key]: source[key] });
-        }
-      }
-    }
-
-    return this.deepMerge(target, ...sources);
-  }
-
-  private isObject(item: any): boolean {
-    return item && typeof item === 'object' && !Array.isArray(item);
   }
 
   private startStatsCollection(): void {

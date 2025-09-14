@@ -1,4 +1,3 @@
-// app/api/data-sources/[id]/stop/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { dataSources } from '@/lib/db/schema';
@@ -6,9 +5,10 @@ import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
 import { DataSourceManager } from '@/lib/data-sources/manager';
 
+// POST /api/data-sources/[id]/stop - Stop a data source
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const authResult = await authenticateRequest(request);
   if (authResult.error) {
@@ -20,19 +20,37 @@ export async function POST(
   }
 
   try {
-    const sourceId = parseInt(params.id);
+    const { id } = await params; // Await params for Next.js 15
+    const sourceId = parseInt(id);
     
+    if (isNaN(sourceId)) {
+      return NextResponse.json({ error: 'Invalid data source ID' }, { status: 400 });
+    }
+
     const manager = DataSourceManager.getInstance();
-    await manager.stopSource(sourceId);
+    
+    try {
+      await manager.stopSource(sourceId);
 
-    // Update the database to mark as inactive
-    await db.update(dataSources)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(eq(dataSources.id, sourceId));
+      // Update database to mark as inactive
+      await db.update(dataSources)
+        .set({ isActive: false })
+        .where(eq(dataSources.id, sourceId));
 
-    return NextResponse.json({ message: 'Data source stopped successfully' });
+      return NextResponse.json({ 
+        message: 'Data source stopped successfully',
+        id: sourceId 
+      });
+    } catch (stopError) {
+      console.error('Error stopping data source:', stopError);
+      return NextResponse.json({ 
+        error: stopError instanceof Error ? stopError.message : 'Failed to stop data source' 
+      }, { status: 500 });
+    }
   } catch (error) {
-    console.error('Error stopping data source:', error);
-    return NextResponse.json({ error: 'Failed to stop data source' }, { status: 500 });
+    console.error('Error in stop route:', error);
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Internal server error' 
+    }, { status: 500 });
   }
 }

@@ -67,28 +67,7 @@ export class DataSourceManager extends EventEmitter {
           console.log(`🔧 Processing data source: ${dbConfig.name} (ID: ${dbConfig.id})`);
           
           // Convert database object to DataSourceConfig with proper typing and null handling
-          const config: DataSourceConfig = {
-            id: dbConfig.id,
-            name: dbConfig.name,
-            description: dbConfig.description || undefined, // Convert null to undefined
-            interface: {
-              type: dbConfig.interfaceType as InterfaceType,
-              config: dbConfig.interfaceConfig as any, // Use 'any' for flexibility
-            },
-            protocol: {
-              type: dbConfig.protocolType as ProtocolType,
-              config: dbConfig.protocolConfig as any, // Use 'any' for flexibility
-            },
-            dataSource: {
-              type: dbConfig.dataSourceType as DataSourceType,
-              templateId: dbConfig.templateId || undefined, // Convert null to undefined
-              customConfig: dbConfig.customConfig as Record<string, any> || {},
-            },
-            isActive: dbConfig.isActive,
-            userId: dbConfig.userId,
-            createdAt: dbConfig.createdAt,
-            updatedAt: dbConfig.updatedAt,
-          };
+          const config: DataSourceConfig = this.convertDbConfigToDataSourceConfig(dbConfig);
           
           await this.startSource(config);
         } catch (error) {
@@ -107,6 +86,42 @@ export class DataSourceManager extends EventEmitter {
     }
   }
 
+  // Helper method to convert database config to DataSourceConfig
+  private convertDbConfigToDataSourceConfig(dbConfig: any): DataSourceConfig {
+    // Handle both old and new database structures
+    const interfaceType = dbConfig.interfaceType || dbConfig.type || 'TCP';
+    const protocolType = dbConfig.protocolType || dbConfig.protocol || 'API_REST';
+    const dataSourceType = dbConfig.dataSourceType || dbConfig.type || 'CUSTOM';
+    
+    // For legacy configs, try to extract interface/protocol from the single config
+    const config = dbConfig.config || {};
+    const interfaceConfig = dbConfig.interfaceConfig || config;
+    const protocolConfig = dbConfig.protocolConfig || config;
+
+    return {
+      id: dbConfig.id,
+      name: dbConfig.name,
+      description: dbConfig.description || undefined,
+      interface: {
+        type: interfaceType as InterfaceType,
+        config: interfaceConfig as any,
+      },
+      protocol: {
+        type: protocolType as ProtocolType,
+        config: protocolConfig as any,
+      },
+      dataSource: {
+        type: dataSourceType as DataSourceType,
+        templateId: dbConfig.templateId || undefined,
+        customConfig: (dbConfig.customConfig as Record<string, any>) || {},
+      },
+      isActive: dbConfig.isActive,
+      userId: dbConfig.userId,
+      createdAt: dbConfig.createdAt,
+      updatedAt: dbConfig.updatedAt,
+    };
+  }
+
   private async testDatabaseConnectivity(): Promise<void> {
     try {
       const testQuery = await db.query.dataSources.findMany({
@@ -120,6 +135,17 @@ export class DataSourceManager extends EventEmitter {
   }
 
   public async startSource(config: DataSourceConfig): Promise<void> {
+    // Validate config structure
+    if (!config.interface) {
+      throw new Error(`Invalid config structure for ${config.name}: missing interface`);
+    }
+    if (!config.protocol) {
+      throw new Error(`Invalid config structure for ${config.name}: missing protocol`);
+    }
+    if (!config.dataSource) {
+      throw new Error(`Invalid config structure for ${config.name}: missing dataSource`);
+    }
+
     console.log(`\n🚀 Starting data source: ${config.name} (ID: ${config.id})`);
     console.log(`🔌 Interface: ${config.interface.type}`);
     console.log(`📡 Protocol: ${config.protocol.type}`);
@@ -414,23 +440,52 @@ export class DataSourceManager extends EventEmitter {
     }
   }
 
-  // Helper method to combine interface and protocol configs into legacy format
+  // CRITICAL FIX: Properly combine configs for legacy sources
   private combineConfigs(config: DataSourceConfig): any {
+    // Deep merge all config objects to create a comprehensive merged config
+    const mergedConfig = this.deepMerge(
+      {},
+      config.interface.config || {},
+      config.protocol.config || {},
+      config.dataSource.customConfig || {}
+    );
+
+    console.log(`🔧 Combined config for ${config.name}:`, JSON.stringify(mergedConfig, null, 2));
+
     return {
       id: config.id,
       name: config.name,
       type: config.interface.type,
       protocol: config.protocol.type,
-      config: {
-        ...config.interface.config,
-        ...config.protocol.config,
-        ...config.dataSource.customConfig,
-      },
+      config: mergedConfig, // This is what legacy sources expect to access via this.config.config
       isActive: config.isActive,
       userId: config.userId,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     };
+  }
+
+  // Helper method for deep merging objects
+  private deepMerge(target: any, ...sources: any[]): any {
+    if (!sources.length) return target;
+    const source = sources.shift();
+
+    if (this.isObject(target) && this.isObject(source)) {
+      for (const key in source) {
+        if (this.isObject(source[key])) {
+          if (!target[key]) Object.assign(target, { [key]: {} });
+          this.deepMerge(target[key], source[key]);
+        } else {
+          Object.assign(target, { [key]: source[key] });
+        }
+      }
+    }
+
+    return this.deepMerge(target, ...sources);
+  }
+
+  private isObject(item: any): boolean {
+    return item && typeof item === 'object' && !Array.isArray(item);
   }
 
   private startStatsCollection(): void {
@@ -487,6 +542,11 @@ export class DataSourceManager extends EventEmitter {
         recordsProcessed: source.recordsProcessed,
         errorsCount: source.errorsCount,
         lastActivity: source.lastActivity,
+        configSummary: {
+          interfaceConfig: Object.keys(source.config.interface.config || {}),
+          protocolConfig: Object.keys(source.config.protocol.config || {}),
+          customConfig: Object.keys(source.config.dataSource.customConfig || {}),
+        }
       })),
     };
   }

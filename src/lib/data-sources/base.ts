@@ -3,10 +3,10 @@ import { db } from '@/lib/db';
 import { dataPoints } from '@/lib/db/schema';
 
 export abstract class BaseDataSource {
-  protected config: DataSourceConfig;
+  protected config: any; // Use any for legacy compatibility
   protected isRunning: boolean = false;
 
-  constructor(config: DataSourceConfig) {
+  constructor(config: any) {
     this.config = config;
   }
 
@@ -58,177 +58,72 @@ export abstract class BaseDataSource {
     }
   }
 
-  // Updated validation methods with proper type handling
-  protected validateInterfaceConfig(requiredFields: string[]) {
-    console.log(`🔍 Validating interface config for ${this.config.name}:`, this.config.interface.config);
-    
-    // Cast to Record<string, any> for dynamic property access
-    const interfaceConfig = this.config.interface.config as Record<string, any>;
-    
-    for (const field of requiredFields) {
-      if (interfaceConfig[field] === undefined || interfaceConfig[field] === null) {
-        const error = new Error(`Missing required interface config field: ${field} for ${this.config.name}`);
-        console.error('❌', error.message);
-        throw error;
-      }
-    }
-    
-    console.log(`✅ Interface config validation passed for ${this.config.name}`);
-  }
-
-  protected validateProtocolConfig(requiredFields: string[]) {
-    console.log(`🔍 Validating protocol config for ${this.config.name}:`, this.config.protocol.config);
-    
-    // Cast to Record<string, any> for dynamic property access
-    const protocolConfig = this.config.protocol.config as Record<string, any>;
-    
-    for (const field of requiredFields) {
-      if (protocolConfig[field] === undefined || protocolConfig[field] === null) {
-        const error = new Error(`Missing required protocol config field: ${field} for ${this.config.name}`);
-        console.error('❌', error.message);
-        throw error;
-      }
-    }
-    
-    console.log(`✅ Protocol config validation passed for ${this.config.name}`);
-  }
-
-  // Legacy method for backward compatibility with improved type handling
+  // Fixed validation method that works with legacy config structure
   protected validateConfig(requiredFields: string[]) {
-    console.log(`⚠️ Using legacy validateConfig method for ${this.config.name}`);
-    console.log(`🔍 Available configs:`, {
-      interface: this.config.interface.config,
-      protocol: this.config.protocol.config,
-      custom: this.config.dataSource.customConfig
-    });
+    console.log(`🔍 Validating config for ${this.config.name}:`, this.config.config);
     
-    // Cast configs to Record<string, any> for dynamic access
-    const interfaceConfig = this.config.interface.config as Record<string, any>;
-    const protocolConfig = this.config.protocol.config as Record<string, any>;
-    const customConfig = this.config.dataSource.customConfig as Record<string, any> || {};
-    
-    for (const field of requiredFields) {
-      // Check interface config first
-      if (interfaceConfig[field] !== undefined && interfaceConfig[field] !== null) {
-        continue;
-      }
-      // Then check protocol config
-      if (protocolConfig[field] !== undefined && protocolConfig[field] !== null) {
-        continue;
-      }
-      // Finally check custom config
-      if (customConfig[field] !== undefined && customConfig[field] !== null) {
-        continue;
-      }
-      
-      const error = new Error(`Missing required config field: ${field} for ${this.config.name}`);
+    if (!this.config.config) {
+      const error = new Error(`Config object is missing for ${this.config.name}`);
       console.error('❌', error.message);
       throw error;
     }
+
+    const config = this.config.config;
     
-    console.log(`✅ Legacy config validation passed for ${this.config.name}`);
+    for (const field of requiredFields) {
+      if (config[field] === undefined || config[field] === null) {
+        const error = new Error(`Missing required config field: ${field} for ${this.config.name}`);
+        console.error('❌', error.message);
+        console.error('❌ Available config fields:', Object.keys(config));
+        throw error;
+      }
+    }
+    
+    console.log(`✅ Config validation passed for ${this.config.name}`);
   }
 
-  // Helper methods to access specific configs with proper typing
-  protected getInterfaceConfig<T = Record<string, any>>(): T {
-    return this.config.interface.config as T;
+  // Helper methods for accessing config values safely
+  protected getConfigValue(key: string, defaultValue?: any): any {
+    if (!this.config.config) {
+      console.warn(`⚠️ Config object missing for ${this.config.name}, returning default value for ${key}`);
+      return defaultValue;
+    }
+    return this.config.config[key] !== undefined ? this.config.config[key] : defaultValue;
   }
 
-  protected getProtocolConfig<T = Record<string, any>>(): T {
-    return this.config.protocol.config as T;
+  protected requireConfigValue(key: string): any {
+    const value = this.getConfigValue(key);
+    if (value === undefined || value === null) {
+      throw new Error(`Required config field '${key}' is missing for ${this.config.name}`);
+    }
+    return value;
   }
 
-  protected getCustomConfig<T = Record<string, any>>(): T {
-    return this.config.dataSource.customConfig as T || {} as T;
-  }
-
-  // Helper method to get combined config (for legacy compatibility)
-  protected getCombinedConfig<T = Record<string, any>>(): T {
-    return {
-      ...(this.config.interface.config as Record<string, any>),
-      ...(this.config.protocol.config as Record<string, any>),
-      ...(this.config.dataSource.customConfig as Record<string, any> || {}),
-    } as T;
-  }
-
-  // Helper methods for common config access patterns with safe property access
+  // Common config accessors with safe defaults
   protected getHost(): string {
-    const interfaceConfig = this.getInterfaceConfig();
-    const protocolConfig = this.getProtocolConfig();
-    
-    return interfaceConfig.host || 
-           interfaceConfig.brokerUrl || 
-           protocolConfig.host || 
-           protocolConfig.brokerUrl || 
+    return this.getConfigValue('host') || 
+           this.getConfigValue('brokerUrl') || 
+           this.getConfigValue('endpoint') || 
            'localhost';
   }
 
   protected getPort(): number {
-    const interfaceConfig = this.getInterfaceConfig();
-    const protocolConfig = this.getProtocolConfig();
-    
-    return interfaceConfig.port || 
-           protocolConfig.port || 
-           80;
+    return this.getConfigValue('port', 80);
   }
 
   protected getTimeout(): number {
-    const interfaceConfig = this.getInterfaceConfig();
-    const protocolConfig = this.getProtocolConfig();
-    
-    return interfaceConfig.timeout || 
-           protocolConfig.timeout || 
-           5000;
+    return this.getConfigValue('timeout', 5000);
   }
 
   protected getPollInterval(): number {
-    const protocolConfig = this.getProtocolConfig();
-    return protocolConfig.pollInterval || 10000;
+    return this.getConfigValue('pollInterval', 10000);
   }
 
   protected getReconnectInterval(): number {
-    const interfaceConfig = this.getInterfaceConfig();
-    return interfaceConfig.reconnectInterval || 5000;
+    return this.getConfigValue('reconnectInterval', 5000);
   }
 
   protected getMaxRetries(): number {
-    const interfaceConfig = this.getInterfaceConfig();
-    const protocolConfig = this.getProtocolConfig();
-    
-    return protocolConfig.maxRetries || 
-           interfaceConfig.maxReconnectAttempts || 
-           3;
-  }
-
-  // Safe property getter with fallback
-  protected getConfigValue(section: 'interface' | 'protocol' | 'custom', key: string, defaultValue?: any): any {
-    let config: Record<string, any>;
-    
-    switch (section) {
-      case 'interface':
-        config = this.getInterfaceConfig();
-        break;
-      case 'protocol':
-        config = this.getProtocolConfig();
-        break;
-      case 'custom':
-        config = this.getCustomConfig();
-        break;
-      default:
-        return defaultValue;
-    }
-    
-    return config[key] !== undefined ? config[key] : defaultValue;
-  }
-
-  // Type-safe config accessor with validation
-  protected requireConfigValue(section: 'interface' | 'protocol' | 'custom', key: string): any {
-    const value = this.getConfigValue(section, key);
-    
-    if (value === undefined || value === null) {
-      throw new Error(`Required ${section} config field '${key}' is missing for ${this.config.name}`);
-    }
-    
-    return value;
+    return this.getConfigValue('maxRetries', 3);
   }
 }

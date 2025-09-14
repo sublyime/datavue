@@ -31,8 +31,8 @@ export function RealTimeChart({
   description,
   yAxisLabel,
   color,
-  maxDataPoints = 50,
-  updateInterval = 2000,
+  maxDataPoints = 20,
+  updateInterval = 3000, // Update every 3 seconds
   chartType = 'area'
 }: RealTimeChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
@@ -40,87 +40,88 @@ export function RealTimeChart({
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Generate mock data for demo purposes
-  const generateMockData = () => {
-    const now = new Date();
-    const mockPoint = {
-      timestamp: now.toLocaleTimeString(),
-      value: parseFloat((Math.random() * 100 + 50).toFixed(2)),
-      quality: 192
-    };
-    
-    setData(prev => {
-      const updated = [...prev, mockPoint];
-      return updated.slice(-maxDataPoints);
-    });
-    setConnectionStatus('connected');
-  };
-
-  // Fetch real-time data
+  // Fetch real-time data from API
   const fetchData = async () => {
     try {
+      console.log(`🔄 Fetching data for source ${dataSourceId}...`);
       const response = await fetch(`/api/data-points?sourceId=${dataSourceId}&limit=1&latest=true`);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log(`📊 Received data:`, result);
+        
         if (result.data && result.data.length > 0) {
           const newPoint = result.data[0];
-          // Handle JSONB value format
-          const value = typeof newPoint.value === 'object' ? 
+          const pointValue = typeof newPoint.value === 'object' ? 
             parseFloat(newPoint.value.value || newPoint.value) : 
             parseFloat(newPoint.value);
             
           setData(prev => {
             const updated = [...prev, {
-              timestamp: new Date(newPoint.timestamp).toLocaleTimeString(),
-              value: isNaN(value) ? Math.random() * 100 : value,
-              quality: newPoint.quality
+              timestamp: new Date().toLocaleTimeString(),
+              value: isNaN(pointValue) ? 0 : pointValue,
+              quality: newPoint.quality || 192
             }];
             return updated.slice(-maxDataPoints);
           });
           setConnectionStatus('connected');
         } else {
-          // Generate mock data if no real data
-          generateMockData();
+          // Generate simulated data if no real data available
+          console.log('📈 No data from API, generating simulated data...');
+          setData(prev => {
+            const lastValue = prev.length > 0 ? prev[prev.length - 1].value : 50;
+            const newValue = lastValue + (Math.random() - 0.5) * 10;
+            const updated = [...prev, {
+              timestamp: new Date().toLocaleTimeString(),
+              value: parseFloat(newValue.toFixed(2)),
+              quality: 192
+            }];
+            return updated.slice(-maxDataPoints);
+          });
+          setConnectionStatus('connected');
         }
       } else {
-        // Generate mock data on error
-        generateMockData();
+        console.error('❌ API error:', response.statusText);
+        setConnectionStatus('error');
       }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      // Generate mock data on error
-      generateMockData();
+      console.error('❌ Failed to fetch data:', error);
+      setConnectionStatus('error');
     }
   };
 
-  // Load initial data
+  // Load initial historical data
   const loadInitialData = async () => {
     try {
-      const response = await fetch(`/api/data-points?sourceId=${dataSourceId}&limit=${Math.min(maxDataPoints, 10)}`);
+      console.log(`📚 Loading initial data for source ${dataSourceId}...`);
+      const response = await fetch(`/api/data-points?sourceId=${dataSourceId}&limit=${maxDataPoints}`);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log(`📋 Initial data loaded:`, result);
+        
         if (result.data && result.data.length > 0) {
-          const formattedData = result.data.reverse().map((point: any) => {
-            const value = typeof point.value === 'object' ? 
+          const formattedData = result.data.reverse().map((point: any, index: number) => {
+            const pointValue = typeof point.value === 'object' ? 
               parseFloat(point.value.value || point.value) : 
               parseFloat(point.value);
               
             return {
               timestamp: new Date(point.timestamp).toLocaleTimeString(),
-              value: isNaN(value) ? Math.random() * 100 : value,
-              quality: point.quality
+              value: isNaN(pointValue) ? Math.random() * 100 : pointValue,
+              quality: point.quality || 192
             };
           });
           setData(formattedData);
           setConnectionStatus('connected');
         } else {
-          // Generate initial mock data
+          // Generate initial simulated data
           const initialData = [];
-          for (let i = 9; i >= 0; i--) {
-            const time = new Date(Date.now() - i * 2000);
+          for (let i = maxDataPoints - 1; i >= 0; i--) {
+            const time = new Date(Date.now() - i * updateInterval);
             initialData.push({
               timestamp: time.toLocaleTimeString(),
-              value: parseFloat((Math.random() * 100 + 50).toFixed(2)),
+              value: parseFloat((Math.random() * 100 + 25).toFixed(2)),
               quality: 192
             });
           }
@@ -129,19 +130,19 @@ export function RealTimeChart({
         }
       }
     } catch (error) {
-      console.error('Failed to load initial data:', error);
-      // Generate initial mock data on error
-      const initialData = [];
-      for (let i = 9; i >= 0; i--) {
-        const time = new Date(Date.now() - i * 2000);
-        initialData.push({
+      console.error('❌ Failed to load initial data:', error);
+      // Generate fallback data
+      const fallbackData = [];
+      for (let i = maxDataPoints - 1; i >= 0; i--) {
+        const time = new Date(Date.now() - i * updateInterval);
+        fallbackData.push({
           timestamp: time.toLocaleTimeString(),
-          value: parseFloat((Math.random() * 100 + 50).toFixed(2)),
+          value: parseFloat((Math.random() * 100 + 25).toFixed(2)),
           quality: 192
         });
       }
-      setData(initialData);
-      setConnectionStatus('connected');
+      setData(fallbackData);
+      setConnectionStatus('error');
     }
   };
 
@@ -255,10 +256,11 @@ export function RealTimeChart({
           </ResponsiveContainer>
         </ChartContainer>
         <div className="flex items-center justify-between text-sm text-muted-foreground mt-2">
-          <span>Data Points: {data.length}</span>
+          <span>Points: {data.length}/{maxDataPoints}</span>
           <span>
-            {data.length > 0 && `Latest: ${data[data.length - 1]?.value.toFixed(2)} ${yAxisLabel}`}
+            {data.length > 0 && `Latest: ${data[data.length - 1]?.value.toFixed(2)}`}
           </span>
+          <span>ID: {dataSourceId}</span>
         </div>
       </CardContent>
     </Card>

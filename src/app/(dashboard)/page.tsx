@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Settings, TrendingUp, Database, Zap } from 'lucide-react';
+import { Plus, Settings, TrendingUp, Database, Zap, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/components/providers'; // ✅ Correct import
+import { RealInteractiveMap } from '@/components/real-interactive-map';
+import { RealTimeChart } from '@/components/real-time-chart';
+import { useAuth } from '@/components/providers';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -20,57 +22,107 @@ interface DataSource {
   isActive: boolean;
   latitude?: number;
   longitude?: number;
-  lastValue?: number;
-  lastUpdated?: string;
   connectionStatus: 'connected' | 'disconnected' | 'error' | 'connecting';
+  lastUpdated?: string;
+}
+
+interface DashboardStats {
+  totalSources: number;
+  activeSources: number;
+  connectedSources: number;
+  totalDataPoints: number;
 }
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  
-  // Mock data for demo
-  useEffect(() => {
-    if (user) {
-      const mockSources: DataSource[] = [
-        {
-          id: 1,
-          name: 'Houston Plant Sensor',
-          description: 'Temperature monitoring',
-          interfaceType: 'TCP',
-          protocolType: 'MODBUS_TCP',
-          dataSourceType: 'SENSOR',
-          isActive: true,
-          latitude: 29.7604,
-          longitude: -95.3698,
-          lastValue: 72.5,
-          lastUpdated: new Date().toISOString(),
-          connectionStatus: 'connected'
-        },
-        {
-          id: 2,
-          name: 'Singapore Terminal',
-          description: 'Pressure monitoring',
-          interfaceType: 'TCP',
-          protocolType: 'API_REST',
-          dataSourceType: 'POWER_METER',
-          isActive: true,
-          latitude: 1.3521,
-          longitude: 103.8198,
-          lastValue: 1.2,
-          lastUpdated: new Date().toISOString(),
-          connectionStatus: 'connected'
-        }
-      ];
-      setDataSources(mockSources);
-    }
-  }, [user]);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalSources: 0,
+    activeSources: 0,
+    connectedSources: 0,
+    totalDataPoints: 0
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+      return;
+    }
+    
+    if (user) {
+      loadDashboardData();
+      
+      // Set up real-time updates every 30 seconds
+      const interval = setInterval(() => {
+        loadDashboardData();
+      }, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [user, loading, router]);
+
+  const loadDashboardData = async () => {
+    try {
+      // Load data sources and stats in parallel
+      const [sourcesResponse, statsResponse] = await Promise.all([
+        fetch('/api/data-sources'),
+        fetch('/api/dashboard/stats')
+      ]);
+
+      if (sourcesResponse.ok) {
+        const sourcesResult = await sourcesResponse.json();
+        setDataSources(sourcesResult.data || []);
+      }
+
+      if (statsResponse.ok) {
+        const statsResult = await statsResponse.json();
+        setStats(statsResult.data);
+      } else {
+        // Fallback to calculated stats if API fails
+        const sources = dataSources;
+        setStats({
+          totalSources: sources.length,
+          activeSources: sources.filter(s => s.isActive).length,
+          connectedSources: sources.filter(s => s.connectionStatus === 'connected').length,
+          totalDataPoints: 0 // Will be loaded separately
+        });
+      }
+
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleManualRefresh = () => {
+    setIsLoading(true);
+    loadDashboardData();
+  };
+
+  const getChartColor = (index: number) => {
+    const colors = [
+      'hsl(var(--chart-1))', 
+      'hsl(var(--chart-2))', 
+      'hsl(var(--chart-3))', 
+      'hsl(var(--chart-4))', 
+      'hsl(var(--chart-5))'
+    ];
+    return colors[index % colors.length];
+  };
+
+  if (loading || (isLoading && dataSources.length === 0)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto mb-4"></div>
+          <h3 className="text-lg font-semibold">Loading Dashboard</h3>
+          <p className="text-muted-foreground">Fetching your data sources and analytics...</p>
+        </div>
       </div>
     );
   }
@@ -78,30 +130,28 @@ export default function DashboardPage() {
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
       <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-muted-foreground">
+            Welcome back, {user?.name} • Last updated: {lastRefresh.toLocaleTimeString()}
+          </p>
+        </div>
         <div className="flex items-center space-x-2">
+          <Button 
+            onClick={handleManualRefresh} 
+            variant="outline" 
+            size="sm"
+            disabled={isLoading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
           <Button onClick={() => router.push('/data-sources')} variant="outline">
             <Settings className="h-4 w-4 mr-2" />
             Manage Sources
           </Button>
         </div>
       </div>
-
-      {/* Auth Success Card */}
-      <Card className="bg-green-50 border-green-200">
-        <CardHeader>
-          <CardTitle className="text-green-800">✅ Dashboard Ready!</CardTitle>
-          <CardDescription>Welcome back, {user?.name}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><strong>Email:</strong> {user?.email}</div>
-            <div><strong>Role:</strong> {user?.role}</div>
-            <div><strong>Data Sources:</strong> {dataSources.length}</div>
-            <div><strong>Active:</strong> {dataSources.filter(s => s.isActive).length}</div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -111,8 +161,10 @@ export default function DashboardPage() {
             <Database className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dataSources.length}</div>
-            <p className="text-xs text-muted-foreground">Ready for monitoring</p>
+            <div className="text-2xl font-bold">{stats.totalSources}</div>
+            <p className="text-xs text-muted-foreground">
+              Configured data sources
+            </p>
           </CardContent>
         </Card>
         
@@ -122,8 +174,10 @@ export default function DashboardPage() {
             <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dataSources.filter(s => s.isActive).length}</div>
-            <p className="text-xs text-muted-foreground">Currently streaming data</p>
+            <div className="text-2xl font-bold">{stats.activeSources}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.totalSources > 0 ? Math.round((stats.activeSources / stats.totalSources) * 100) : 0}% of total
+            </p>
           </CardContent>
         </Card>
         
@@ -133,8 +187,10 @@ export default function DashboardPage() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{dataSources.filter(s => s.connectionStatus === 'connected').length}</div>
-            <p className="text-xs text-muted-foreground">Real-time status</p>
+            <div className="text-2xl font-bold">{stats.connectedSources}</div>
+            <p className="text-xs text-muted-foreground">
+              Real-time streaming
+            </p>
           </CardContent>
         </Card>
         
@@ -144,44 +200,147 @@ export default function DashboardPage() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12,486</div>
-            <p className="text-xs text-muted-foreground">Total collected</p>
+            <div className="text-2xl font-bold">{stats.totalDataPoints.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">
+              Total collected
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="cursor-pointer hover:bg-muted/50" onClick={() => router.push('/data-sources')}>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Manage Data Sources
-            </CardTitle>
-            <CardDescription>Configure and monitor your data sources</CardDescription>
-          </CardHeader>
-        </Card>
+      {/* Main Content */}
+      <Tabs defaultValue="map" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="map">Map View</TabsTrigger>
+          <TabsTrigger value="charts">Real-time Charts</TabsTrigger>
+          <TabsTrigger value="sources">Data Sources</TabsTrigger>
+        </TabsList>
         
-        <Card className="cursor-pointer hover:bg-muted/50">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              View Analytics
-            </CardTitle>
-            <CardDescription>Analyze historical data trends</CardDescription>
-          </CardHeader>
-        </Card>
+        <TabsContent value="map" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Interactive Map</CardTitle>
+              <CardDescription>
+                Click anywhere on the map to add a new data source. 
+                Click on markers to view details and manage existing sources.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="h-[700px] w-full">
+                <RealInteractiveMap />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
         
-        <Card className="cursor-pointer hover:bg-muted/50" onClick={() => router.push('/settings')}>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Settings
-            </CardTitle>
-            <CardDescription>Configure system preferences</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
+        <TabsContent value="charts" className="space-y-4">
+          {dataSources.filter(source => source.isActive).length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {dataSources.filter(source => source.isActive).map((source, index) => (
+                <RealTimeChart
+                  key={source.id}
+                  dataSourceId={source.id}
+                  title={source.name}
+                  description={`${source.interfaceType}/${source.protocolType}`}
+                  yAxisLabel="Value"
+                  color={getChartColor(index)}
+                  chartType="area"
+                />
+              ))}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <TrendingUp className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Active Data Sources</h3>
+                <p className="text-muted-foreground text-center mb-4">
+                  Activate some data sources to see real-time charts here.
+                </p>
+                <Button onClick={() => router.push('/data-sources')}>
+                  <Database className="h-4 w-4 mr-2" />
+                  Manage Data Sources
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        
+        <TabsContent value="sources" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Data Sources ({dataSources.length})</CardTitle>
+              <CardDescription>
+                Overview of all configured data sources and their current status.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dataSources.length > 0 ? (
+                <ScrollArea className="h-[500px] w-full">
+                  <div className="space-y-4">
+                    {dataSources.map((source) => (
+                      <Card key={source.id} className="p-4 hover:bg-muted/50 cursor-pointer">
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-semibold">{source.name}</h4>
+                              <Badge variant="outline" className="text-xs">
+                                ID: {source.id}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {source.interfaceType}/{source.protocolType} • {source.dataSourceType}
+                            </p>
+                            {source.description && (
+                              <p className="text-xs text-muted-foreground italic">
+                                {source.description}
+                              </p>
+                            )}
+                            {source.latitude && source.longitude && (
+                              <p className="text-xs text-muted-foreground font-mono">
+                                📍 {source.latitude.toFixed(4)}, {source.longitude.toFixed(4)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Badge variant={source.isActive ? "default" : "secondary"}>
+                              {source.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                            <Badge 
+                              variant={
+                                source.connectionStatus === 'connected' ? "default" :
+                                source.connectionStatus === 'error' ? "destructive" : "secondary"
+                              }
+                            >
+                              {source.connectionStatus}
+                            </Badge>
+                            {source.lastUpdated && (
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(source.lastUpdated).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="text-center py-12">
+                  <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Data Sources</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Get started by adding your first data source on the map.
+                  </p>
+                  <Button onClick={() => router.push('/data-sources')}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Data Source
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { BaseDataSource } from '../base';
-import { DataPoint } from '../types';
+import { DataPoint, DataSourceConfig } from '../types';
 
 export class MQTTDataSource extends BaseDataSource {
   private client: any = null;
@@ -16,6 +16,8 @@ export class MQTTDataSource extends BaseDataSource {
       
       const options: any = {
         clientId: this.config.config.clientId || `historian_${Date.now()}`,
+        clean: this.config.config.cleanSession !== false,
+        keepalive: this.config.config.keepAlive || 60,
       };
 
       if (this.config.config.username && this.config.config.password) {
@@ -27,11 +29,10 @@ export class MQTTDataSource extends BaseDataSource {
 
       this.client.on('connect', () => {
         console.log('MQTT connected');
-        
         const topics = Array.isArray(this.config.config.topics) 
           ? this.config.config.topics 
           : [this.config.config.topics];
-        
+
         topics.forEach(topic => {
           this.client.subscribe(topic, { qos: this.config.config.qos || 0 }, (err: any) => {
             if (err) {
@@ -41,7 +42,6 @@ export class MQTTDataSource extends BaseDataSource {
             }
           });
         });
-
         this.isRunning = true;
       });
 
@@ -57,14 +57,21 @@ export class MQTTDataSource extends BaseDataSource {
         console.error('MQTT error:', error);
       });
 
+      this.client.on('close', () => {
+        console.log('MQTT connection closed');
+        this.isRunning = false;
+      });
+
     } catch (error) {
       console.error('Failed to start MQTT source:', error);
+      throw error;
     }
   }
 
   async stop() {
     if (this.client) {
-      this.client.end();
+      this.client.end(true);
+      this.client = null;
     }
     this.isRunning = false;
   }
@@ -73,9 +80,14 @@ export class MQTTDataSource extends BaseDataSource {
     const timestamp = new Date();
     
     try {
-      const message = typeof data.message === 'string' 
-        ? JSON.parse(data.message) 
-        : data.message;
+      let message = data.message;
+      
+      // Try to parse JSON
+      try {
+        message = JSON.parse(data.message);
+      } catch {
+        // Keep as string if not JSON
+      }
 
       const points: DataPoint[] = [];
 
@@ -83,9 +95,10 @@ export class MQTTDataSource extends BaseDataSource {
         this.flattenMQTTMessage(message, data.topic, '', points, timestamp);
       } else {
         points.push({
+          sourceId: this.config.id,
           tagName: data.topic,
           value: message,
-          quality: 100,
+          quality: 192,
           timestamp,
           metadata: {
             sourceType: 'MQTT',
@@ -96,12 +109,13 @@ export class MQTTDataSource extends BaseDataSource {
       }
 
       return points;
-
     } catch (error) {
+      console.error('Error processing MQTT message:', error);
       return [{
+        sourceId: this.config.id,
         tagName: data.topic,
         value: data.message,
-        quality: 100,
+        quality: 192,
         timestamp,
         metadata: {
           sourceType: 'MQTT',
@@ -118,14 +132,15 @@ export class MQTTDataSource extends BaseDataSource {
       if (obj.hasOwnProperty(key)) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         const value = obj[key];
-
-        if (typeof value === 'object' && value !== null) {
+        
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
           this.flattenMQTTMessage(value, topic, fullKey, points, timestamp);
         } else {
           points.push({
+            sourceId: this.config.id,
             tagName: `${topic}.${fullKey}`,
             value: value,
-            quality: 100,
+            quality: 192,
             timestamp,
             metadata: {
               sourceType: 'MQTT',
@@ -138,4 +153,9 @@ export class MQTTDataSource extends BaseDataSource {
       }
     }
   }
+}
+
+// Factory function
+export function create(config: DataSourceConfig): MQTTDataSource {
+  return new MQTTDataSource(config);
 }

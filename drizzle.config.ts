@@ -1,13 +1,21 @@
-// drizzle.config.ts
-import type { Config } from 'drizzle-kit';
+import { defineConfig } from 'drizzle-kit';
+import { config } from 'dotenv';
 
-export default {
+// Load environment variables
+config();
+
+export default defineConfig({
+  dialect: 'postgresql',
   schema: './src/lib/db/schema.ts',
   out: './drizzle',
-  driver: 'pg',
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:ala1nna@localhost:5432/visual_historian',
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 5432,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'ala1nna',
+    database: process.env.DB_NAME || 'visual_historian',
+    ssl: process.env.DB_SSL === 'true',
   },
   verbose: true,
   strict: true,
-} satisfies Config;
+});

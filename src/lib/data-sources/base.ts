@@ -1,14 +1,13 @@
 import { DataSourceConfig, DataPoint } from './types';
-import { DataSourceManager } from './manager';
+import { db } from '@/lib/db';
+import { dataPoints } from '@/lib/db/schema';
 
 export abstract class BaseDataSource {
   protected config: DataSourceConfig;
   protected isRunning: boolean = false;
-  protected manager: DataSourceManager;
 
   constructor(config: DataSourceConfig) {
     this.config = config;
-    this.manager = DataSourceManager.getInstance();
   }
 
   abstract initialize(): Promise<void>;
@@ -26,20 +25,35 @@ export abstract class BaseDataSource {
 
   protected async handleData(rawData: any) {
     try {
-      const dataPoints = await this.processData(rawData);
+      const processedPoints = await this.processData(rawData);
       
-      for (const point of dataPoints) {
-        await this.manager.storeDataPoint({
+      for (const point of processedPoints) {
+        await this.storeDataPoint({
           ...point,
           sourceId: this.config.id,
           timestamp: point.timestamp || new Date(),
         });
       }
 
-      // TODO: Add real-time event emission for WebSocket connections
-      console.log(`Processed ${dataPoints.length} data points from ${this.config.name}`);
+      console.log(`Processed ${processedPoints.length} data points from ${this.config.name}`);
     } catch (error) {
       console.error(`Error processing data from ${this.config.name}:`, error);
+    }
+  }
+
+  protected async storeDataPoint(point: DataPoint) {
+    try {
+      await db.insert(dataPoints).values({
+        sourceId: point.sourceId,
+        tagName: point.tagName,
+        value: point.value,
+        quality: point.quality || 192,
+        timestamp: point.timestamp || new Date(),
+        location: point.location || null,
+        metadata: point.metadata || {},
+      });
+    } catch (error) {
+      console.error('Error storing data point:', error);
     }
   }
 

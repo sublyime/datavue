@@ -1,5 +1,5 @@
 import { BaseDataSource } from '../base';
-import { DataPoint } from '../types';
+import { DataPoint, DataSourceConfig } from '../types';
 
 export class APIDataSource extends BaseDataSource {
   private pollInterval: NodeJS.Timeout | null = null;
@@ -11,11 +11,10 @@ export class APIDataSource extends BaseDataSource {
 
   async start() {
     const pollInterval = this.config.config.pollInterval || 60000;
-    
     this.pollInterval = setInterval(() => {
       this.pollAPI();
     }, pollInterval);
-
+    
     // Initial poll
     await this.pollAPI();
     this.isRunning = true;
@@ -24,6 +23,7 @@ export class APIDataSource extends BaseDataSource {
   async stop() {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
     this.isRunning = false;
   }
@@ -41,7 +41,6 @@ export class APIDataSource extends BaseDataSource {
 
       const data = await response.json();
       await this.handleData(data);
-
     } catch (error) {
       console.error('API poll error:', error);
     }
@@ -50,9 +49,7 @@ export class APIDataSource extends BaseDataSource {
   async processData(data: any): Promise<DataPoint[]> {
     const timestamp = new Date();
     const points: DataPoint[] = [];
-
     this.flattenJSON(data, '', points, timestamp);
-
     return points;
   }
 
@@ -61,14 +58,15 @@ export class APIDataSource extends BaseDataSource {
       if (obj.hasOwnProperty(key)) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         const value = obj[key];
-
-        if (typeof value === 'object' && value !== null) {
+        
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
           this.flattenJSON(value, fullKey, points, timestamp);
         } else {
           points.push({
+            sourceId: this.config.id,
             tagName: fullKey,
             value: value,
-            quality: 100,
+            quality: 192, // GOOD quality
             timestamp,
             metadata: {
               sourceType: 'API',
@@ -79,4 +77,9 @@ export class APIDataSource extends BaseDataSource {
       }
     }
   }
+}
+
+// Factory function
+export function create(config: DataSourceConfig): APIDataSource {
+  return new APIDataSource(config);
 }

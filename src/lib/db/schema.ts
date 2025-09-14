@@ -1,12 +1,13 @@
 // src/lib/db/schema.ts
-import { 
-  pgTable, 
-  serial, 
-  varchar, 
-  text, 
-  boolean, 
-  timestamp, 
-  integer, 
+
+import {
+  pgTable,
+  serial,
+  varchar,
+  text,
+  boolean,
+  timestamp,
+  integer,
   jsonb,
   real,
   index
@@ -65,8 +66,8 @@ export const dataPoints = pgTable('data_points', {
   tagNameIdx: index('data_points_tag_name_idx').on(table.tagName),
   timestampIdx: index('data_points_timestamp_idx').on(table.timestamp),
   sourceTagTimeIdx: index('data_points_source_tag_time_idx').on(
-    table.sourceId, 
-    table.tagName, 
+    table.sourceId,
+    table.tagName,
     table.timestamp
   ),
 }));

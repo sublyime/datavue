@@ -1,10 +1,27 @@
 // app/api/data-sources/[id]/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { dataSources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
 import { DataSourceManager } from '@/lib/data-sources/manager';
+import { DataSourceConfig, DataSourceType, ProtocolType } from '@/lib/data-sources/types';
+
+// Helper function to convert database result to DataSourceConfig
+function convertToDataSourceConfig(dbSource: any): DataSourceConfig {
+  return {
+    id: dbSource.id,
+    name: dbSource.name,
+    type: dbSource.type as DataSourceType,
+    protocol: dbSource.protocol as ProtocolType,
+    config: dbSource.config as Record<string, any>,
+    isActive: dbSource.isActive,
+    userId: dbSource.userId,
+    createdAt: dbSource.createdAt,
+    updatedAt: dbSource.updatedAt,
+  };
+}
 
 // GET /api/data-sources/[id] - Get a specific data source
 export async function GET(
@@ -21,19 +38,35 @@ export async function GET(
   }
 
   try {
+    const sourceId = parseInt(params.id);
+    if (isNaN(sourceId)) {
+      return NextResponse.json({ error: 'Invalid data source ID' }, { status: 400 });
+    }
+
     const source = await db.query.dataSources.findFirst({
-      where: eq(dataSources.id, parseInt(params.id)),
+      where: eq(dataSources.id, sourceId),
     });
 
     if (!source) {
       return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
     }
 
+    // Convert to properly typed DataSourceConfig
+    const typedSource = convertToDataSourceConfig(source);
+
     const manager = DataSourceManager.getInstance();
     const activeSources = manager.getActiveSources();
-    const runtimeStatus = activeSources.find(s => s.id === source.id)?.status || { isRunning: false };
+    const runtimeStatus = activeSources.find(s => s.id === typedSource.id)?.status || { 
+      isRunning: false,
+      connectionStatus: 'disconnected' as const,
+    };
 
-    return NextResponse.json({ data: { ...source, runtimeStatus } });
+    return NextResponse.json({ 
+      data: { 
+        ...typedSource, 
+        runtimeStatus 
+      } 
+    });
   } catch (error) {
     console.error('Error fetching data source:', error);
     return NextResponse.json({ error: 'Failed to fetch data source' }, { status: 500 });
@@ -58,35 +91,71 @@ export async function PUT(
     const body = await request.json();
     const sourceId = parseInt(params.id);
     
+    if (isNaN(sourceId)) {
+      return NextResponse.json({ error: 'Invalid data source ID' }, { status: 400 });
+    }
+
+    // Check if data source exists
+    const existingSource = await db.query.dataSources.findFirst({
+      where: eq(dataSources.id, sourceId),
+    });
+
+    if (!existingSource) {
+      return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
+    }
+
     const updatedSource = await db.update(dataSources)
       .set({
-        name: body.name,
-        type: body.type,
-        protocol: body.protocol,
-        config: body.config,
-        isActive: body.isActive,
+        name: body.name || existingSource.name,
+        type: body.type || existingSource.type,
+        protocol: body.protocol || existingSource.protocol,
+        config: body.config || existingSource.config,
+        isActive: body.isActive !== undefined ? body.isActive : existingSource.isActive,
         updatedAt: new Date(),
       })
       .where(eq(dataSources.id, sourceId))
       .returning();
 
-    if (updatedSource.length === 0) {
-      return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
-    }
+    // Convert to properly typed DataSourceConfig
+    const typedUpdatedSource = convertToDataSourceConfig(updatedSource[0]);
 
     const manager = DataSourceManager.getInstance();
     
-    // Restart the source if it was active and configuration changed
-    if (body.isActive) {
-      await manager.restartSource(sourceId);
-    } else {
-      await manager.stopSource(sourceId);
+    // Handle source state changes
+    if (body.isActive && !existingSource.isActive) {
+      // Starting the source
+      try {
+        await manager.startSource(typedUpdatedSource);
+      } catch (startError) {
+        console.error('Failed to start updated data source:', startError);
+        // Revert isActive to false
+        await db.update(dataSources)
+          .set({ isActive: false })
+          .where(eq(dataSources.id, sourceId));
+        typedUpdatedSource.isActive = false;
+      }
+    } else if (!body.isActive && existingSource.isActive) {
+      // Stopping the source
+      try {
+        await manager.stopSource(sourceId);
+      } catch (stopError) {
+        console.error('Failed to stop data source:', stopError);
+      }
+    } else if (body.isActive && existingSource.isActive) {
+      // Restarting the source with new configuration
+      try {
+        await manager.restartSource(sourceId);
+      } catch (restartError) {
+        console.error('Failed to restart data source:', restartError);
+      }
     }
 
-    return NextResponse.json({ data: updatedSource[0] });
+    return NextResponse.json({ data: typedUpdatedSource });
   } catch (error) {
     console.error('Error updating data source:', error);
-    return NextResponse.json({ error: 'Failed to update data source' }, { status: 500 });
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to update data source' 
+    }, { status: 500 });
   }
 }
 
@@ -107,21 +176,35 @@ export async function DELETE(
   try {
     const sourceId = parseInt(params.id);
     
-    // Stop the source first
-    const manager = DataSourceManager.getInstance();
-    await manager.stopSource(sourceId);
+    if (isNaN(sourceId)) {
+      return NextResponse.json({ error: 'Invalid data source ID' }, { status: 400 });
+    }
 
-    const deletedSource = await db.delete(dataSources)
-      .where(eq(dataSources.id, sourceId))
-      .returning();
+    // Check if data source exists
+    const existingSource = await db.query.dataSources.findFirst({
+      where: eq(dataSources.id, sourceId),
+    });
 
-    if (deletedSource.length === 0) {
+    if (!existingSource) {
       return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ message: 'Data source deleted successfully' });
+    // Stop and remove the source
+    const manager = DataSourceManager.getInstance();
+    try {
+      await manager.removeSource(sourceId);
+    } catch (removeError) {
+      console.error('Failed to remove data source from manager:', removeError);
+    }
+
+    return NextResponse.json({ 
+      message: 'Data source deleted successfully',
+      deletedId: sourceId 
+    });
   } catch (error) {
     console.error('Error deleting data source:', error);
-    return NextResponse.json({ error: 'Failed to delete data source' }, { status: 500 });
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to delete data source' 
+    }, { status: 500 });
   }
 }

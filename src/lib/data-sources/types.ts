@@ -1,24 +1,29 @@
 // src/lib/data-sources/types.ts
 
-export type DataSourceType = 
-  | 'SERIAL' 
-  | 'USB' 
-  | 'FILE' 
-  | 'TCP' 
-  | 'UDP' 
-  | 'API' 
-  | 'MODBUS' 
+export type DataSourceType =
+  | 'SERIAL'
+  | 'USB'
+  | 'FILE'
+  | 'TCP'
+  | 'UDP'
+  | 'API'
+  | 'MODBUS'
   | 'MQTT';
 
-export type ProtocolType = 
-  | 'MODBUS' 
-  | 'MQTT' 
-  | 'NMEA' 
-  | 'HART' 
-  | 'OPC' 
-  | 'OSI_PI' 
-  | 'ANALOG_4_20mA' 
-  | 'ANALOG_0_5V';
+export type ProtocolType =
+  | 'MODBUS'
+  | 'MQTT'
+  | 'NMEA'
+  | 'HART'
+  | 'OPC'
+  | 'OSI_PI'
+  | 'ANALOG_4_20mA'
+  | 'ANALOG_0_5V'
+  | 'API'
+  | 'FILE'
+  | 'SERIAL'
+  | 'TCP'
+  | 'UDP';
 
 export interface DataSourceRuntimeStatus {
   isRunning: boolean;
@@ -48,6 +53,8 @@ export interface ModbusConfig {
   unitId: number;
   timeout?: number;
   retries?: number;
+  reconnectInterval?: number;
+  pollInterval?: number;
   registers?: Array<{
     address: number;
     type: 'holding' | 'input' | 'coil' | 'discrete';
@@ -109,9 +116,17 @@ export interface TcpConfig {
   delimiter?: string;
 }
 
+export interface UdpConfig {
+  port: number;
+  host?: string;
+  timeout?: number;
+  messageFormat?: 'json' | 'csv' | 'binary' | 'custom';
+  delimiter?: string;
+}
+
 export interface FileConfig {
   path: string;
-  format: 'csv' | 'json' | 'xml' | 'binary';
+  format: 'csv' | 'json' | 'xml' | 'binary' | 'text';
   watchMode?: boolean;
   pollInterval?: number;
   headers?: string[];
@@ -138,16 +153,27 @@ export interface ApiConfig {
   dataPath?: string; // JSON path to extract data
 }
 
+export interface SerialConfig {
+  port: string;
+  baudRate: number;
+  dataBits?: 5 | 6 | 7 | 8;
+  stopBits?: 1 | 2;
+  parity?: 'none' | 'even' | 'odd';
+  sentences?: string[]; // For NMEA protocol
+}
+
 // Union type for all possible configurations
-export type DataSourceProtocolConfig = 
-  | ModbusConfig 
-  | MqttConfig 
-  | NmeaConfig 
-  | OpcConfig 
-  | AnalogConfig 
-  | TcpConfig 
-  | FileConfig 
-  | ApiConfig;
+export type DataSourceProtocolConfig =
+  | ModbusConfig
+  | MqttConfig
+  | NmeaConfig
+  | OpcConfig
+  | AnalogConfig
+  | TcpConfig
+  | UdpConfig
+  | FileConfig
+  | ApiConfig
+  | SerialConfig;
 
 // Data point structure
 export interface DataPoint {

@@ -1,39 +1,35 @@
 // app/api/auth/login/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { users, sessions } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { execute } from '@/lib/db/raw';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🔐 Login attempt');
     const { email, password } = await request.json();
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
     }
 
-    // Find user
-    const user = await db.query.users.findFirst({
-      where: eq(users.email, email)
-    });
+    // Find user using raw SQL
+    const userResult = await execute(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+    const user = userResult.rows[0] as any;
 
     if (!user) {
-      console.log('❌ User not found:', email);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    if (!user.isActive) {
-      console.log('❌ User inactive:', email);
+    if (!user.is_active) {
       return NextResponse.json({ error: 'Account disabled' }, { status: 401 });
     }
 
     // Check password
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      console.log('❌ Password mismatch for:', email);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
@@ -42,14 +38,10 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    await db.insert(sessions).values({
-      userId: user.id,
-      token,
-      expiresAt
-    });
-
-    console.log('✅ Login successful for:', email);
-    console.log('   Session token:', token.substring(0, 10) + '...');
+    await execute(
+      'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, token, expiresAt]
+    );
 
     // Set cookie
     const response = NextResponse.json({ 
@@ -73,7 +65,7 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-    console.error('❌ Login error:', error);
+    console.error('Login error:', error);
     return NextResponse.json({ error: 'Login failed' }, { status: 500 });
   }
 }

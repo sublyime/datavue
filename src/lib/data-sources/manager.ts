@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import { dataSources, dataPoints } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { DataSourceConfig, DataPoint, DataSourceType, DataSourceStatus } from './types';
+import { DataSourceConfig, DataPoint, DataSourceType, DataSourceStatus, ActiveSourceInfo } from './types';
 import { SerialDataSource } from './sources/serial';
 import { TCPDataSource } from './sources/tcp';
 import { UDPDataSource } from './sources/udp';
@@ -47,35 +47,32 @@ export class DataSourceManager {
 
   async initialize() {
     if (this.isInitialized) {
-      console.warn('Data source manager is already initialized');
       return;
     }
 
-    console.log('Initializing data source manager...');
-    
     try {
-      // Load all active data sources
-      const activeSources = await db.query.dataSources.findMany({
+      console.log('Initializing data source manager...');
+
+      const sources = await db.query.dataSources.findMany({
         where: eq(dataSources.isActive, true),
       });
 
-      const startupPromises = activeSources.map(source => 
-        this.startSource(source as DataSourceConfig).catch(error => {
-          console.error(`Failed to start source ${source.name}:`, error);
-          return null;
-        })
-      );
+      for (const source of sources) {
+        const SourceClass = this.getDataSourceClass(source.type);
+        if (SourceClass) {
+          const instance = new SourceClass(source, this.eventEmitter);
+          this.activeSources.set(source.id, instance);
+          console.log(`Initialized source: ${source.name} (Type: ${source.type})`);
+          await instance.initialize();
+        } else {
+          console.warn(`No class found for data source type: ${source.type}`);
+        }
+      }
 
-      await Promise.allSettled(startupPromises);
-
-      const successfulStarts = startupPromises.filter(p => p !== null).length;
-      console.log(`Data source manager initialized with ${successfulStarts}/${activeSources.length} active sources`);
-      
       this.isInitialized = true;
+      console.log(`Data source manager initialized with ${this.activeSources.size} active sources.`);
       this.eventEmitter.emit(DataSourceManager.EVENTS.MANAGER_INITIALIZED, {
-        totalSources: activeSources.length,
-        successfulStarts,
-        failedStarts: activeSources.length - successfulStarts
+        sourceCount: this.activeSources.size,
       });
 
     } catch (error) {
@@ -84,159 +81,137 @@ export class DataSourceManager {
     }
   }
 
-  async startSource(sourceConfig: DataSourceConfig): Promise<boolean> {
-    try {
-      // Check if source is already running
-      if (this.activeSources.has(sourceConfig.id)) {
-        console.warn(`Data source ${sourceConfig.name} (ID: ${sourceConfig.id}) is already running`);
-        return true;
-      }
-
-      let source: DataSourceInstance;
-
-      switch (sourceConfig.type) {
-        case DataSourceType.SERIAL:
-          source = new SerialDataSource(sourceConfig);
-          break;
-        case DataSourceType.TCP:
-          source = new TCPDataSource(sourceConfig);
-          break;
-        case DataSourceType.UDP:
-          source = new UDPDataSource(sourceConfig);
-          break;
-        case DataSourceType.FILE:
-          source = new FileDataSource(sourceConfig);
-          break;
-        case DataSourceType.API:
-          source = new APIDataSource(sourceConfig);
-          break;
-        case DataSourceType.MODBUS:
-          source = new ModbusDataSource(sourceConfig);
-          break;
-        case DataSourceType.MQTT:
-          source = new MQTTDataSource(sourceConfig);
-          break;
-        default:
-          throw new Error(`Unsupported data source type: ${sourceConfig.type}`);
-      }
-
-      await source.initialize();
-      await source.start();
-      
-      this.activeSources.set(sourceConfig.id, source);
-      
-      console.log(`Started data source: ${sourceConfig.name} (ID: ${sourceConfig.id}, Type: ${sourceConfig.type})`);
-      this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_STARTED, {
-        sourceId: sourceConfig.id,
-        sourceName: sourceConfig.name,
-        type: sourceConfig.type
-      });
-
-      return true;
-    } catch (error) {
-      console.error(`Failed to start data source ${sourceConfig.name}:`, error);
-      this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_ERROR, {
-        sourceId: sourceConfig.id,
-        sourceName: sourceConfig.name,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      return false;
-    }
-  }
-
-  async stopSource(sourceId: number): Promise<boolean> {
-    const source = this.activeSources.get(sourceId);
-    if (!source) {
-      console.warn(`Data source ID ${sourceId} is not active`);
-      return false;
-    }
-
-    try {
-      await source.stop();
-      this.activeSources.delete(sourceId);
-      
-      console.log(`Stopped data source ID: ${sourceId}`);
-      this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_STOPPED, {
-        sourceId,
-        sourceName: source.config.name
-      });
-      
-      return true;
-    } catch (error) {
-      console.error(`Error stopping source ${sourceId}:`, error);
-      return false;
-    }
-  }
-
-  async restartSource(sourceId: number): Promise<boolean> {
-    await this.stopSource(sourceId);
-    
-    try {
-      const sourceConfig = await db.query.dataSources.findFirst({
-        where: eq(dataSources.id, sourceId),
-      });
-
-      if (!sourceConfig) {
-        throw new Error(`Data source with ID ${sourceId} not found in database`);
-      }
-
-      return await this.startSource(sourceConfig as DataSourceConfig);
-    } catch (error) {
-      console.error(`Failed to restart source ${sourceId}:`, error);
-      return false;
-    }
-  }
-
-  getActiveSources() {
-    return Array.from(this.activeSources.entries()).map(([id, source]) => ({
+  // NEW: Get all active sources with their info
+  getActiveSources(): ActiveSourceInfo[] {
+    return Array.from(this.activeSources.entries()).map(([id, instance]) => ({
       id,
-      config: source.config,
-      status: source.getStatus ? source.getStatus() : { isRunning: true, lastError: null },
+      config: instance.config,
+      status: instance.getStatus()
     }));
   }
 
-  getSourceStatus(sourceId: number): DataSourceStatus | null {
-    const source = this.activeSources.get(sourceId);
-    return source ? (source.getStatus ? source.getStatus() : { isRunning: true, lastError: null }) : null;
-  }
-
-  isSourceActive(sourceId: number): boolean {
-    return this.activeSources.has(sourceId);
-  }
-
-  async storeDataPoint(point: DataPoint): Promise<boolean> {
-    try {
-      await db.insert(dataPoints).values({
-        sourceId: point.sourceId,
-        tagName: point.tagName,
-        value: point.value,
-        quality: point.quality,
-        timestamp: point.timestamp,
-        location: point.location,
-        metadata: point.metadata,
-      });
-
-      this.eventEmitter.emit(DataSourceManager.EVENTS.DATA_RECEIVED, point);
-      return true;
-    } catch (error) {
-      console.error('Failed to store data point:', error);
-      return false;
+  // NEW: Start a specific source by config
+  async startSource(config: DataSourceConfig): Promise<void> {
+    const SourceClass = this.getDataSourceClass(config.type);
+    if (SourceClass) {
+      const instance = new SourceClass(config, this.eventEmitter);
+      await instance.initialize();
+      await instance.start();
+      this.activeSources.set(config.id, instance);
     }
   }
 
-  // Event handling methods
-  on(event: string, listener: (...args: any[]) => void): void {
-    this.eventEmitter.on(event, listener);
+  // NEW: Restart a source
+  async restartSource(id: number): Promise<void> {
+    await this.stopSource(id);
+    const source = await db.query.dataSources.findFirst({
+      where: eq(dataSources.id, id),
+    });
+    if (source) {
+      await this.startSource(source);
+    }
   }
 
-  off(event: string, listener: (...args: any[]) => void): void {
-    this.eventEmitter.off(event, listener);
+  // NEW: Stop a specific source
+  async stopSource(id: number): Promise<void> {
+    const source = this.activeSources.get(id);
+    if (source) {
+      await source.stop();
+      this.activeSources.delete(id);
+    }
   }
 
-  once(event: string, listener: (...args: any[]) => void): void {
-    this.eventEmitter.once(event, listener);
+  // Starts a specific source or all active sources if no ID is provided
+  async start(id?: number) {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (id) {
+      const source = this.activeSources.get(id);
+      if (source) {
+        await source.start();
+        console.log(`Started data source with ID: ${id}`);
+        this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_STARTED, { id });
+      } else {
+        console.warn(`Data source with ID ${id} not found.`);
+      }
+    } else {
+      for (const [sourceId, source] of this.activeSources) {
+        try {
+          await source.start();
+          console.log(`Started data source: ${source.config.name}`);
+          this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_STARTED, { id: sourceId });
+        } catch (error) {
+          console.error(`Error starting source ${sourceId}:`, error);
+          this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_ERROR, { id: sourceId, error });
+        }
+      }
+    }
   }
 
+  // Stops a specific source or all active sources if no ID is provided
+  async stop(id?: number) {
+    if (!this.isInitialized) {
+      console.warn('Data source manager is not initialized, nothing to stop.');
+      return;
+    }
+
+    if (id) {
+      const source = this.activeSources.get(id);
+      if (source) {
+        await source.stop();
+        this.activeSources.delete(id);
+        console.log(`Stopped data source with ID: ${id}`);
+        this.eventEmitter.emit(DataSourceManager.EVENTS.SOURCE_STOPPED, { id });
+      } else {
+        console.warn(`Data source with ID ${id} not found or already stopped.`);
+      }
+    } else {
+      const stopPromises = Array.from(this.activeSources.values()).map(source => source.stop());
+      await Promise.allSettled(stopPromises);
+      this.activeSources.clear();
+      console.log('All data sources stopped.');
+    }
+  }
+
+  // Get status of a specific source or all active sources
+  getStatus(id?: number): DataSourceStatus[] | DataSourceStatus | undefined {
+    if (id) {
+      const source = this.activeSources.get(id);
+      return source?.getStatus();
+    } else {
+      return Array.from(this.activeSources.values()).map(source => source.getStatus());
+    }
+  }
+
+  // Get a source by its ID
+  getSource(id: number): DataSourceInstance | undefined {
+    return this.activeSources.get(id);
+  }
+
+  private getDataSourceClass(type: DataSourceType): any {
+    switch (type) {
+      case 'SERIAL':
+        return SerialDataSource;
+      case 'TCP':
+        return TCPDataSource;
+      case 'UDP':
+        return UDPDataSource;
+      case 'FILE':
+        return FileDataSource;
+      case 'API':
+        return APIDataSource;
+      case 'MODBUS':
+        return ModbusDataSource;
+      case 'MQTT':
+        return MQTTDataSource;
+      default:
+        return null;
+    }
+  }
+
+  // Gracefully shuts down the manager and all active sources
   async shutdown() {
     if (!this.isInitialized) {
       console.warn('Data source manager is not initialized');
@@ -261,7 +236,7 @@ export class DataSourceManager {
     this.activeSources.clear();
     this.isInitialized = false;
 
-    const successfulStops = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const successfulStops = results.filter(r => r.status === 'fulfilled' && (r as PromiseFulfilledResult<{ success: boolean }>).value.success).length;
     console.log(`Data source manager shutdown complete. Stopped ${successfulStops}/${results.length} sources`);
     
     this.eventEmitter.emit(DataSourceManager.EVENTS.MANAGER_SHUTDOWN, {
@@ -285,6 +260,5 @@ export class DataSourceManager {
   private cleanup() {
     this.activeSources.clear();
     this.eventEmitter.removeAllListeners();
-    (DataSourceManager as any).instance = null;
   }
 }

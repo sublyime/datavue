@@ -1,90 +1,91 @@
-import { NextRequest, NextResponse } from 'next/server';
+// middleware/auth.ts
+import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { sessions, users } from '@/lib/db/schema';
-import { eq, and, gt } from 'drizzle-orm';
-
-export interface AuthenticatedUser {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-  permissions: Record<string, string[]>;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { eq } from 'drizzle-orm';
 
 export interface AuthResult {
-  user?: AuthenticatedUser;
+  user?: {
+    id: number;
+    email: string;
+    name: string;
+    role: string;
+    isActive: boolean;
+  };
   error?: string;
-  status?: number;
-}
-
-// Interface for the user object returned by Drizzle query
-interface DatabaseUser {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-  permissions: Record<string, string[]>;
-  createdAt: Date;
-  updatedAt: Date;
-  password: string; // This field exists but we'll exclude it
+  status: number;
 }
 
 export async function authenticateRequest(request: NextRequest): Promise<AuthResult> {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { error: 'Unauthorized', status: 401 };
-  }
-
-  const token = authHeader.substring(7);
-  
   try {
+    const token = request.cookies.get('session-token')?.value;
+    
+    if (!token) {
+      return { error: 'No authentication token', status: 401 };
+    }
+
+    // Check session in database
     const session = await db.query.sessions.findFirst({
-      where: and(
-        eq(sessions.token, token),
-        gt(sessions.expiresAt, new Date())
-      ),
+      where: eq(sessions.token, token),
+      columns: {
+        id: true,
+        userId: true,
+        token: true,
+        expiresAt: true,
+        createdAt: true
+      },
       with: {
-        user: true
+        user: {
+          columns: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true
+          }
+        }
       }
     });
 
     if (!session || !session.user) {
-      return { error: 'Invalid or expired token', status: 401 };
+      return { error: 'Invalid session', status: 401 };
     }
 
-    // Type assertion to ensure TypeScript knows the structure
-    const dbUser = session.user as DatabaseUser;
+    if (new Date(session.expiresAt) < new Date()) {
+      return { error: 'Session expired', status: 401 };
+    }
 
-    // Return user without password field - manually create a new object
-    const userWithoutPassword: AuthenticatedUser = {
-      id: dbUser.id,
-      email: dbUser.email,
-      name: dbUser.name,
-      role: dbUser.role,
-      permissions: dbUser.permissions,
-      createdAt: dbUser.createdAt,
-      updatedAt: dbUser.updatedAt
+    if (!session.user.isActive) {
+      return { error: 'User account is disabled', status: 403 };
+    }
+
+    return {
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+        role: session.user.role,
+        isActive: session.user.isActive
+      },
+      status: 200
     };
-
-    return { user: userWithoutPassword };
   } catch (error) {
     console.error('Authentication error:', error);
     return { error: 'Authentication failed', status: 500 };
   }
 }
 
-export function requirePermission(user: AuthenticatedUser, resource: string, action: string): boolean {
-  // Check if user has admin role
-  if (user.role === 'admin') {
+export function requirePermission(user: any, resource: string, action: string): boolean {
+  if (user.role === 'ADMIN') {
     return true;
   }
 
-  // Check user-specific permissions
-  if (user.permissions && user.permissions[resource] && user.permissions[resource].includes(action)) {
-    return true;
-  }
+  const rolePermissions: Record<string, string[]> = {
+    ADMIN: ['create', 'read', 'update', 'delete'],
+    OPERATOR: ['create', 'read', 'update'],
+    USER: ['read', 'update'],
+    VIEWER: ['read']
+  };
 
-  return false;
+  return rolePermissions[user.role]?.includes(action) || false;
 }

@@ -1,47 +1,39 @@
+// app/api/users/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
+import * as bcrypt from 'bcrypt';
 
-// Simple password hashing function (replace with proper bcrypt if needed)
-async function hashPassword(password: string): Promise<string> {
-  // In a real application, you should use a proper hashing library like bcrypt
-  // This is a simple placeholder implementation for development
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hash));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+interface CreateUserBody {
+  email: string;
+  password: string;
+  name: string;
+  role?: string;
+  isActive?: boolean;
 }
 
-// GET /api/users - List all users (admin only)
+// GET /api/users - List all users
 export async function GET(request: NextRequest) {
   const authResult = await authenticateRequest(request);
   if (authResult.error) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'users', 'read')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
-    const userList = await db.query.users.findMany({
-      columns: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        permissions: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      // Don't include password field
+    const allUsers = await db.query.users.findMany({
+      orderBy: (users, { desc }) => [desc(users.createdAt)],
     });
 
-    return NextResponse.json({ data: userList });
+    // Remove passwords from response
+    const usersWithoutPasswords = allUsers.map(({ password, ...user }) => user);
+
+    return NextResponse.json({ data: usersWithoutPasswords });
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
@@ -55,54 +47,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'users', 'create')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
-    const body = await request.json();
+    const body: CreateUserBody = await request.json();
     
-    // Validate required fields
-    if (!body.email || !body.password || !body.name) {
-      return NextResponse.json(
-        { error: 'Email, password, and name are required' },
-        { status: 400 }
-      );
-    }
-
-    // Check if user already exists
-    const existingUser = await db.query.users.findFirst({
-      where: eq(users.email, body.email),
-    });
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User with this email already exists' },
-        { status: 409 }
-      );
-    }
-
     // Hash password
-    const hashedPassword = await hashPassword(body.password);
+    const hashedPassword = await bcrypt.hash(body.password, 12);
 
     const newUser = await db.insert(users).values({
       email: body.email,
       password: hashedPassword,
       name: body.name,
-      role: body.role || 'user',
-      permissions: body.permissions || {},
-    }).returning({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      role: users.role,
-      permissions: users.permissions,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
-    });
+      role: body.role || 'USER',
+      isActive: body.isActive !== false,
+    }).returning();
 
-    return NextResponse.json({ data: newUser[0] }, { status: 201 });
+    // Remove password from response
+    const { password, ...userWithoutPassword } = newUser[0];
+
+    return NextResponse.json({ data: userWithoutPassword }, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });

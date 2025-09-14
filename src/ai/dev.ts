@@ -1,12 +1,13 @@
+// src/ai/dev.ts
 import { config } from 'dotenv';
 config();
 
-// Import our custom genkit setup
-import { ai, customOllama } from '@/ai/genkit';
+// Import our custom genkit setup - use relative import
+import { ai, customOllama } from './genkit';
 
 // Import the flows
-import '@/ai/flows/suggest-database-config';
-import '@/ai/flows/translate-obscure-protocol';
+import './flows/suggest-database-config';
+import './flows/translate-obscure-protocol';
 
 // Test connection to Ollama on startup
 async function testOllamaConnection() {

@@ -1,3 +1,7 @@
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Card,
   CardContent,
@@ -7,14 +11,39 @@ import {
 } from '@/components/ui/card';
 import { MapPlaceholder } from '@/components/map-placeholder';
 import { DynamicChart } from '@/components/dynamic-chart';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function DashboardPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-full items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="flex min-h-full flex-col">
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          Real-time visualization of your data streams.
+          Real-time visualization of your data streams. Welcome back, {user.name}!
         </p>
       </header>
       <div className="grid flex-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -37,7 +66,7 @@ export default function DashboardPage() {
           initialData={[
             { time: '1', value: 50 },
             { time: '2', value: 51 },
-            { time: '3',value: 49 },
+            { time: '3', value: 49 },
           ]}
           color="hsl(var(--chart-1))"
         />
@@ -49,7 +78,7 @@ export default function DashboardPage() {
           initialData={[
             { time: '1', value: 120 },
             { time: '2', value: 122 },
-            { time: '3',value: 118 },
+            { time: '3', value: 118 },
           ]}
           color="hsl(var(--chart-2))"
         />
@@ -61,7 +90,7 @@ export default function DashboardPage() {
           initialData={[
             { time: '1', value: 850 },
             { time: '2', value: 852 },
-            { time: '3',value: 849 },
+            { time: '3', value: 849 },
           ]}
           color="hsl(var(--destructive))"
         />

@@ -1,17 +1,10 @@
+// app/api/users/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
-
-// Simple password hashing function (same as above)
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hash));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+import * as bcrypt from 'bcrypt';
 
 // GET /api/users/[id] - Get a specific user
 export async function GET(
@@ -23,31 +16,23 @@ export async function GET(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Users can read their own profile, admins can read any profile
-  // Check if user is defined before accessing properties
-  if (!authResult.user || (authResult.user.id !== parseInt(params.id) && !requirePermission(authResult.user, 'users', 'read'))) {
+  if (!authResult.user || !requirePermission(authResult.user, 'users', 'read')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
     const user = await db.query.users.findFirst({
       where: eq(users.id, parseInt(params.id)),
-      columns: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        permissions: true,
-        createdAt: true,
-        updatedAt: true,
-      },
     });
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ data: user });
+    // Remove password from response
+    const { password, ...userWithoutPassword } = user;
+
+    return NextResponse.json({ data: userWithoutPassword });
   } catch (error) {
     console.error('Error fetching user:', error);
     return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 });
@@ -64,45 +49,39 @@ export async function PUT(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Users can update their own profile, admins can update any profile
-  // Check if user is defined before accessing properties
-  if (!authResult.user || (authResult.user.id !== parseInt(params.id) && !requirePermission(authResult.user, 'users', 'update'))) {
+  if (!authResult.user || !requirePermission(authResult.user, 'users', 'update')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
     const body = await request.json();
+    const userId = parseInt(params.id);
     
     const updateData: any = {
       name: body.name,
       role: body.role,
-      permissions: body.permissions,
+      isActive: body.isActive,
       updatedAt: new Date(),
     };
 
     // Only update password if provided
     if (body.password) {
-      updateData.password = await hashPassword(body.password);
+      updateData.password = await bcrypt.hash(body.password, 12);
     }
 
     const updatedUser = await db.update(users)
       .set(updateData)
-      .where(eq(users.id, parseInt(params.id)))
-      .returning({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        role: users.role,
-        permissions: users.permissions,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      });
+      .where(eq(users.id, userId))
+      .returning();
 
     if (updatedUser.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ data: updatedUser[0] });
+    // Remove password from response
+    const { password, ...userWithoutPassword } = updatedUser[0];
+
+    return NextResponse.json({ data: userWithoutPassword });
   } catch (error) {
     console.error('Error updating user:', error);
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
@@ -119,19 +98,21 @@ export async function DELETE(
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  // Check if user is defined before accessing properties
   if (!authResult.user || !requirePermission(authResult.user, 'users', 'delete')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   try {
+    const userId = parseInt(params.id);
+    
+    // Prevent users from deleting themselves
+    if (authResult.user.id === userId) {
+      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
+    }
+
     const deletedUser = await db.delete(users)
-      .where(eq(users.id, parseInt(params.id)))
-      .returning({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-      });
+      .where(eq(users.id, userId))
+      .returning();
 
     if (deletedUser.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });

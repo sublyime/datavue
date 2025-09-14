@@ -16,14 +16,23 @@ export const storageTypeEnum = pgEnum('storage_type', [
   'AZURE_BLOB', 'AWS_S3', 'GOOGLE_CLOUD_STORAGE', 'FIRESTORE', 'TIMESCALE'
 ]);
 
-// Users table
+// User roles enum
+export const userRoleEnum = pgEnum('user_role', [
+  'ADMIN',
+  'USER',
+  'VIEWER',
+  'OPERATOR'
+]);
+
+// Users table - SINGLE DEFINITION
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   password: varchar('password', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
-  role: varchar('role', { length: 50 }).notNull().default('user'),
-  permissions: jsonb('permissions').notNull().default({}),
+  role: userRoleEnum('role').notNull().default('USER'),
+  isActive: boolean('is_active').notNull().default(true),
+  lastLogin: timestamp('last_login'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -73,7 +82,7 @@ export const dataPointMetadata = pgTable('data_point_metadata', {
   value: jsonb('value').notNull(),
 });
 
-// User sessions for authentication
+// User sessions for authentication - SINGLE DEFINITION
 export const sessions = pgTable('sessions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id),

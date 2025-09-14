@@ -1,4 +1,3 @@
-// src/lib/data-sources/types.ts
 export type DataSourceType = 
   | 'SERIAL' 
   | 'USB' 
@@ -36,6 +35,7 @@ export interface DataSourceConfig {
   userId: number;
   createdAt: Date;
   updatedAt: Date;
+  runtimeStatus?: RuntimeStatus; // ADD THIS
 }
 
 export interface DataSourceStatus {

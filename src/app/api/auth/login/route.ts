@@ -1,75 +1,69 @@
+// app/api/auth/login/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { users, sessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 
-// Simple password verification function (replaces bcrypt.compare)
-async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-  // Hash the provided password using the same algorithm as the hashPassword function
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hash));
-  const providedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  // Compare the hashes
-  return providedHash === hashedPassword;
-}
-
-// POST /api/auth/login - User login
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    
-    // Validate required fields
-    if (!body.email || !body.password) {
-      return NextResponse.json(
-        { error: 'Email and password are required' },
-        { status: 400 }
-      );
+    const { email, password }: { email: string; password: string } = await request.json();
+
+    if (!email || !password) {
+      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Find user by email
+    // Find user
     const user = await db.query.users.findFirst({
-      where: eq(users.email, body.email),
+      where: eq(users.email, email)
     });
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    // Verify password
-    const isValidPassword = await verifyPassword(body.password, user.password);
-    if (!isValidPassword) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
+    if (!user.isActive) {
+      return NextResponse.json({ error: 'Account is disabled' }, { status: 401 });
     }
 
-    // Generate session token
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
+    // Check password
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
 
     // Create session
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
+
     await db.insert(sessions).values({
       userId: user.id,
       token,
-      expiresAt,
+      expiresAt
     });
 
-    // Return user info (without password) and token
-    const { password, ...userWithoutPassword } = user;
-    return NextResponse.json({
-      user: userWithoutPassword,
-      token,
-      expiresAt,
+    // Set cookie
+    const response = NextResponse.json({ 
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      }
     });
+
+    response.cookies.set('session-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      expires: expiresAt,
+      path: '/'
+    });
+
+    return response;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json({ error: 'Login failed' }, { status: 500 });

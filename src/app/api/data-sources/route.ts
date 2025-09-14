@@ -6,16 +6,27 @@ import { dataSources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
 import { DataSourceManager } from '@/lib/data-sources/manager';
-import { DataSourceConfig, DataSourceType, ProtocolType } from '@/lib/data-sources/types';
+import { DataSourceConfig, InterfaceType, ProtocolType, DataSourceType } from '@/lib/data-sources/types';
 
 // Helper function to convert database result to DataSourceConfig
 function convertToDataSourceConfig(dbSource: any): DataSourceConfig {
   return {
     id: dbSource.id,
     name: dbSource.name,
-    type: dbSource.type as DataSourceType,
-    protocol: dbSource.protocol as ProtocolType,
-    config: dbSource.config as Record<string, any>,
+    description: dbSource.description || undefined,
+    interface: {
+      type: dbSource.interfaceType as InterfaceType,
+      config: dbSource.interfaceConfig as Record<string, any>,
+    },
+    protocol: {
+      type: dbSource.protocolType as ProtocolType,
+      config: dbSource.protocolConfig as Record<string, any>,
+    },
+    dataSource: {
+      type: dbSource.dataSourceType as DataSourceType,
+      templateId: dbSource.templateId || undefined,
+      customConfig: dbSource.customConfig as Record<string, any> || {},
+    },
     isActive: dbSource.isActive,
     userId: dbSource.userId,
     createdAt: dbSource.createdAt,
@@ -75,18 +86,47 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    // Validate required fields
-    if (!body.name || !body.type || !body.protocol) {
+    // Validate required fields for new structure
+    if (!body.name || !body.interface?.type || !body.protocol?.type || !body.dataSource?.type) {
       return NextResponse.json({ 
-        error: 'Missing required fields: name, type, protocol' 
+        error: 'Missing required fields: name, interface.type, protocol.type, dataSource.type' 
       }, { status: 400 });
     }
 
+    // Validate interface and protocol types
+    const validInterfaceTypes = ['SERIAL', 'TCP', 'UDP', 'USB', 'FILE'];
+    const validProtocolTypes = ['MODBUS_RTU', 'MODBUS_TCP', 'OPC_UA', 'OSI_PI', 'MQTT', 'NMEA_0183', 'HART', 'ANALOG_4_20MA', 'ANALOG_0_5V', 'API_REST', 'API_SOAP'];
+    const validDataSourceTypes = ['PLC', 'HMI', 'SENSOR_NETWORK', 'WEATHER_STATION', 'GPS_TRACKER', 'FLOW_METER', 'TEMPERATURE_SENSOR', 'PRESSURE_TRANSMITTER', 'LEVEL_SENSOR', 'VIBRATION_MONITOR', 'GAS_DETECTOR', 'WATER_QUALITY_SENSOR', 'POWER_METER', 'HISTORIAN_SERVER', 'SCADA_SYSTEM', 'CUSTOM'];
+
+    if (!validInterfaceTypes.includes(body.interface.type)) {
+      return NextResponse.json({ 
+        error: `Invalid interface type. Must be one of: ${validInterfaceTypes.join(', ')}` 
+      }, { status: 400 });
+    }
+
+    if (!validProtocolTypes.includes(body.protocol.type)) {
+      return NextResponse.json({ 
+        error: `Invalid protocol type. Must be one of: ${validProtocolTypes.join(', ')}` 
+      }, { status: 400 });
+    }
+
+    if (!validDataSourceTypes.includes(body.dataSource.type)) {
+      return NextResponse.json({ 
+        error: `Invalid data source type. Must be one of: ${validDataSourceTypes.join(', ')}` 
+      }, { status: 400 });
+    }
+
+    // Create the new data source with correct field mapping
     const newSource = await db.insert(dataSources).values({
       name: body.name,
-      type: body.type,
-      protocol: body.protocol,
-      config: body.config || {},
+      description: body.description || null,
+      interfaceType: body.interface.type,
+      interfaceConfig: body.interface.config || {},
+      protocolType: body.protocol.type,
+      protocolConfig: body.protocol.config || {},
+      dataSourceType: body.dataSource.type,
+      templateId: body.dataSource.templateId || null,
+      customConfig: body.dataSource.customConfig || {},
       isActive: body.isActive !== false,
       userId: authResult.user.id,
     }).returning();
@@ -107,6 +147,11 @@ export async function POST(request: NextRequest) {
           .where(eq(dataSources.id, typedNewSource.id));
         
         typedNewSource.isActive = false;
+        
+        return NextResponse.json({ 
+          data: typedNewSource,
+          warning: `Data source created but failed to start: ${startError instanceof Error ? startError.message : 'Unknown error'}`
+        }, { status: 201 });
       }
     }
 

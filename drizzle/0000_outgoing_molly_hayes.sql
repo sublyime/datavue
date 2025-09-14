@@ -22,12 +22,35 @@ CREATE TABLE "data_points" (
 	"metadata" jsonb
 );
 --> statement-breakpoint
+CREATE TABLE "data_source_templates" (
+	"id" varchar(100) PRIMARY KEY NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"description" text,
+	"manufacturer" varchar(255),
+	"model" varchar(255),
+	"type" varchar(50) NOT NULL,
+	"supported_interfaces" jsonb NOT NULL,
+	"supported_protocols" jsonb NOT NULL,
+	"default_config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"documentation" text,
+	"icon" varchar(255),
+	"is_system" boolean DEFAULT false NOT NULL,
+	"user_id" integer,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "data_sources" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"name" varchar(255) NOT NULL,
-	"type" varchar(50) NOT NULL,
-	"protocol" varchar(50) NOT NULL,
-	"config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"description" text,
+	"interface_type" varchar(50) NOT NULL,
+	"interface_config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"protocol_type" varchar(50) NOT NULL,
+	"protocol_config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"data_source_type" varchar(50) NOT NULL,
+	"template_id" varchar(100),
+	"custom_config" jsonb DEFAULT '{}'::jsonb,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"user_id" integer NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -77,6 +100,8 @@ CREATE TABLE "users" (
 --> statement-breakpoint
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "data_points" ADD CONSTRAINT "data_points_source_id_data_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."data_sources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "data_source_templates" ADD CONSTRAINT "data_source_templates_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "data_sources" ADD CONSTRAINT "data_sources_template_id_data_source_templates_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."data_source_templates"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "data_sources" ADD CONSTRAINT "data_sources_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "storage_configs" ADD CONSTRAINT "storage_configs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -87,8 +112,12 @@ CREATE INDEX "data_points_source_id_idx" ON "data_points" USING btree ("source_i
 CREATE INDEX "data_points_tag_name_idx" ON "data_points" USING btree ("tag_name");--> statement-breakpoint
 CREATE INDEX "data_points_timestamp_idx" ON "data_points" USING btree ("timestamp");--> statement-breakpoint
 CREATE INDEX "data_points_source_tag_time_idx" ON "data_points" USING btree ("source_id","tag_name","timestamp");--> statement-breakpoint
+CREATE INDEX "data_source_templates_type_idx" ON "data_source_templates" USING btree ("type");--> statement-breakpoint
+CREATE INDEX "data_source_templates_user_id_idx" ON "data_source_templates" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "data_sources_user_id_idx" ON "data_sources" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "data_sources_type_idx" ON "data_sources" USING btree ("type");--> statement-breakpoint
-CREATE INDEX "data_sources_protocol_idx" ON "data_sources" USING btree ("protocol");--> statement-breakpoint
+CREATE INDEX "data_sources_interface_type_idx" ON "data_sources" USING btree ("interface_type");--> statement-breakpoint
+CREATE INDEX "data_sources_protocol_type_idx" ON "data_sources" USING btree ("protocol_type");--> statement-breakpoint
+CREATE INDEX "data_sources_data_source_type_idx" ON "data_sources" USING btree ("data_source_type");--> statement-breakpoint
+CREATE INDEX "data_sources_template_id_idx" ON "data_sources" USING btree ("template_id");--> statement-breakpoint
 CREATE INDEX "system_metrics_metric_name_idx" ON "system_metrics" USING btree ("metric_name");--> statement-breakpoint
 CREATE INDEX "system_metrics_timestamp_idx" ON "system_metrics" USING btree ("timestamp");

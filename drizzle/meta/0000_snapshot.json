@@ -1,5 +1,5 @@
 {
-  "id": "321ade41-c198-4a34-ab23-5252369761d6",
+  "id": "1b2216e0-96b8-4a20-97f7-87fe68f85ec2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -294,6 +294,158 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.data_source_templates": {
+      "name": "data_source_templates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(100)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manufacturer": {
+          "name": "manufacturer",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supported_interfaces": {
+          "name": "supported_interfaces",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supported_protocols": {
+          "name": "supported_protocols",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "default_config": {
+          "name": "default_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "documentation": {
+          "name": "documentation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "icon": {
+          "name": "icon",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_system": {
+          "name": "is_system",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "data_source_templates_type_idx": {
+          "name": "data_source_templates_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "data_source_templates_user_id_idx": {
+          "name": "data_source_templates_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "data_source_templates_user_id_users_id_fk": {
+          "name": "data_source_templates_user_id_users_id_fk",
+          "tableFrom": "data_source_templates",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.data_sources": {
       "name": "data_sources",
       "schema": "",
@@ -310,23 +462,55 @@
           "primaryKey": false,
           "notNull": true
         },
-        "type": {
-          "name": "type",
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "interface_type": {
+          "name": "interface_type",
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true
         },
-        "protocol": {
-          "name": "protocol",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "config": {
-          "name": "config",
+        "interface_config": {
+          "name": "interface_config",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "protocol_type": {
+          "name": "protocol_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "protocol_config": {
+          "name": "protocol_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "data_source_type": {
+          "name": "data_source_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custom_config": {
+          "name": "custom_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
           "default": "'{}'::jsonb"
         },
         "is_active": {
@@ -373,11 +557,11 @@
           "method": "btree",
           "with": {}
         },
-        "data_sources_type_idx": {
-          "name": "data_sources_type_idx",
+        "data_sources_interface_type_idx": {
+          "name": "data_sources_interface_type_idx",
           "columns": [
             {
-              "expression": "type",
+              "expression": "interface_type",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -388,11 +572,41 @@
           "method": "btree",
           "with": {}
         },
-        "data_sources_protocol_idx": {
-          "name": "data_sources_protocol_idx",
+        "data_sources_protocol_type_idx": {
+          "name": "data_sources_protocol_type_idx",
           "columns": [
             {
-              "expression": "protocol",
+              "expression": "protocol_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "data_sources_data_source_type_idx": {
+          "name": "data_sources_data_source_type_idx",
+          "columns": [
+            {
+              "expression": "data_source_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "data_sources_template_id_idx": {
+          "name": "data_sources_template_id_idx",
+          "columns": [
+            {
+              "expression": "template_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -405,6 +619,19 @@
         }
       },
       "foreignKeys": {
+        "data_sources_template_id_data_source_templates_id_fk": {
+          "name": "data_sources_template_id_data_source_templates_id_fk",
+          "tableFrom": "data_sources",
+          "tableTo": "data_source_templates",
+          "columnsFrom": [
+            "template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "data_sources_user_id_users_id_fk": {
           "name": "data_sources_user_id_users_id_fk",
           "tableFrom": "data_sources",

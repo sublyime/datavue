@@ -6,16 +6,126 @@ import { dataSources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticateRequest, requirePermission } from '@/middleware/auth';
 import { DataSourceManager } from '@/lib/data-sources/manager';
-import { DataSourceConfig, DataSourceType, ProtocolType } from '@/lib/data-sources/types';
+import { 
+  DataSourceConfig, 
+  InterfaceType, 
+  ProtocolType, 
+  DataSourceType,
+  SerialInterfaceConfig,
+  TcpInterfaceConfig,
+  UdpInterfaceConfig,
+  UsbInterfaceConfig,
+  FileInterfaceConfig,
+  ModbusRtuProtocolConfig,
+  ModbusTcpProtocolConfig,
+  OpcUaProtocolConfig,
+  MqttProtocolConfig,
+  NmeaProtocolConfig,
+  HartProtocolConfig,
+  AnalogProtocolConfig,
+  ApiProtocolConfig
+} from '@/lib/data-sources/types';
 
-// Helper function to convert database result to DataSourceConfig
+// Helper function to convert database result to DataSourceConfig with proper type casting
 function convertToDataSourceConfig(dbSource: any): DataSourceConfig {
   return {
     id: dbSource.id,
     name: dbSource.name,
-    type: dbSource.type as DataSourceType,
-    protocol: dbSource.protocol as ProtocolType,
-    config: dbSource.config as Record<string, any>,
+    description: dbSource.description || undefined,
+    interface: {
+      type: dbSource.interfaceType as InterfaceType,
+      config: dbSource.interfaceConfig as any, // Cast to 'any' for flexibility
+    },
+    protocol: {
+      type: dbSource.protocolType as ProtocolType,
+      config: dbSource.protocolConfig as any, // Cast to 'any' for flexibility
+    },
+    dataSource: {
+      type: dbSource.dataSourceType as DataSourceType,
+      templateId: dbSource.templateId || undefined,
+      customConfig: (dbSource.customConfig as Record<string, any>) || {},
+    },
+    isActive: dbSource.isActive,
+    userId: dbSource.userId,
+    createdAt: dbSource.createdAt,
+    updatedAt: dbSource.updatedAt,
+  };
+}
+
+// Alternative: More specific type casting based on interface/protocol types
+function convertToDataSourceConfigWithTyping(dbSource: any): DataSourceConfig {
+  // Determine interface config type based on interface type
+  let interfaceConfig: any;
+  switch (dbSource.interfaceType) {
+    case 'SERIAL':
+      interfaceConfig = dbSource.interfaceConfig as SerialInterfaceConfig;
+      break;
+    case 'TCP':
+      interfaceConfig = dbSource.interfaceConfig as TcpInterfaceConfig;
+      break;
+    case 'UDP':
+      interfaceConfig = dbSource.interfaceConfig as UdpInterfaceConfig;
+      break;
+    case 'USB':
+      interfaceConfig = dbSource.interfaceConfig as UsbInterfaceConfig;
+      break;
+    case 'FILE':
+      interfaceConfig = dbSource.interfaceConfig as FileInterfaceConfig;
+      break;
+    default:
+      interfaceConfig = dbSource.interfaceConfig as any;
+  }
+
+  // Determine protocol config type based on protocol type
+  let protocolConfig: any;
+  switch (dbSource.protocolType) {
+    case 'MODBUS_RTU':
+      protocolConfig = dbSource.protocolConfig as ModbusRtuProtocolConfig;
+      break;
+    case 'MODBUS_TCP':
+      protocolConfig = dbSource.protocolConfig as ModbusTcpProtocolConfig;
+      break;
+    case 'OPC_UA':
+      protocolConfig = dbSource.protocolConfig as OpcUaProtocolConfig;
+      break;
+    case 'MQTT':
+      protocolConfig = dbSource.protocolConfig as MqttProtocolConfig;
+      break;
+    case 'NMEA_0183':
+      protocolConfig = dbSource.protocolConfig as NmeaProtocolConfig;
+      break;
+    case 'HART':
+      protocolConfig = dbSource.protocolConfig as HartProtocolConfig;
+      break;
+    case 'ANALOG_4_20MA':
+    case 'ANALOG_0_5V':
+      protocolConfig = dbSource.protocolConfig as AnalogProtocolConfig;
+      break;
+    case 'API_REST':
+    case 'API_SOAP':
+      protocolConfig = dbSource.protocolConfig as ApiProtocolConfig;
+      break;
+    default:
+      protocolConfig = dbSource.protocolConfig as any;
+  }
+
+  return {
+    id: dbSource.id,
+    name: dbSource.name,
+    description: dbSource.description ?? undefined,
+    interface: {
+      type: dbSource.interfaceType as InterfaceType,
+      config: interfaceConfig,
+    },
+    protocol: {
+      type: dbSource.protocolType as ProtocolType,
+      config: protocolConfig,
+    },
+    dataSource: {
+      type: dbSource.dataSourceType as DataSourceType,
+      templateId: dbSource.templateId ?? undefined,
+      customConfig: (dbSource.customConfig as Record<string, any>) ?? {},
+    },
     isActive: dbSource.isActive,
     userId: dbSource.userId,
     createdAt: dbSource.createdAt,
@@ -104,12 +214,18 @@ export async function PUT(
       return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
     }
 
+    // Update with new structure - handle potentially undefined values properly
     const updatedSource = await db.update(dataSources)
       .set({
-        name: body.name || existingSource.name,
-        type: body.type || existingSource.type,
-        protocol: body.protocol || existingSource.protocol,
-        config: body.config || existingSource.config,
+        name: body.name ?? existingSource.name,
+        description: body.description !== undefined ? (body.description || null) : existingSource.description,
+        interfaceType: body.interface?.type ?? existingSource.interfaceType,
+        interfaceConfig: body.interface?.config ?? existingSource.interfaceConfig,
+        protocolType: body.protocol?.type ?? existingSource.protocolType,
+        protocolConfig: body.protocol?.config ?? existingSource.protocolConfig,
+        dataSourceType: body.dataSource?.type ?? existingSource.dataSourceType,
+        templateId: body.dataSource?.templateId !== undefined ? (body.dataSource.templateId || null) : existingSource.templateId,
+        customConfig: body.dataSource?.customConfig ?? existingSource.customConfig,
         isActive: body.isActive !== undefined ? body.isActive : existingSource.isActive,
         updatedAt: new Date(),
       })
@@ -134,7 +250,7 @@ export async function PUT(
           .where(eq(dataSources.id, sourceId));
         typedUpdatedSource.isActive = false;
       }
-    } else if (!body.isActive && existingSource.isActive) {
+    } else if (body.isActive === false && existingSource.isActive) {
       // Stopping the source
       try {
         await manager.stopSource(sourceId);

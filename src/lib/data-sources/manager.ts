@@ -1,6 +1,6 @@
 // src/lib/data-sources/manager.ts
 
-import { DataSourceConfig, DataSourceStatus, DataSourceRuntimeStatus, DataSourceType, ProtocolType } from './types';
+import { DataSourceConfig, DataSourceStatus, DataSourceRuntimeStatus, InterfaceType, ProtocolType, DataSourceType } from './types';
 import { EventEmitter } from 'events';
 import { db } from '@/lib/db';
 import { dataSources } from '@/lib/db/schema';
@@ -19,7 +19,7 @@ interface ActiveDataSource {
   id: number;
   config: DataSourceConfig;
   status: DataSourceRuntimeStatus;
-  instance?: any; // The actual data source implementation
+  instance?: any;
   lastActivity: Date;
   recordsProcessed: number;
   errorsCount: number;
@@ -44,28 +44,46 @@ export class DataSourceManager extends EventEmitter {
 
   public async initialize(): Promise<void> {
     if (this.isInitialized) {
+      console.log('🔄 Data Source Manager already initialized');
       return;
     }
 
-    console.log('Initializing Data Source Manager...');
+    console.log('🚀 Initializing Data Source Manager...');
     
     try {
+      // Test database connectivity first
+      console.log('🔍 Testing database connectivity...');
+      await this.testDatabaseConnectivity();
+      
       // Load and start all active data sources from database
       const activeConfigs = await db.query.dataSources.findMany({
         where: eq(dataSources.isActive, true),
       });
 
-      console.log(`Found ${activeConfigs.length} active data sources to start`);
+      console.log(`📋 Found ${activeConfigs.length} active data sources to start`);
 
       for (const dbConfig of activeConfigs) {
         try {
-          // Convert database object to DataSourceConfig with proper typing
+          console.log(`🔧 Processing data source: ${dbConfig.name} (ID: ${dbConfig.id})`);
+          
+          // Convert database object to DataSourceConfig with proper typing and null handling
           const config: DataSourceConfig = {
             id: dbConfig.id,
             name: dbConfig.name,
-            type: dbConfig.type as DataSourceType,
-            protocol: dbConfig.protocol as ProtocolType,
-            config: dbConfig.config as Record<string, any>,
+            description: dbConfig.description || undefined, // Convert null to undefined
+            interface: {
+              type: dbConfig.interfaceType as InterfaceType,
+              config: dbConfig.interfaceConfig as any, // Use 'any' for flexibility
+            },
+            protocol: {
+              type: dbConfig.protocolType as ProtocolType,
+              config: dbConfig.protocolConfig as any, // Use 'any' for flexibility
+            },
+            dataSource: {
+              type: dbConfig.dataSourceType as DataSourceType,
+              templateId: dbConfig.templateId || undefined, // Convert null to undefined
+              customConfig: dbConfig.customConfig as Record<string, any> || {},
+            },
             isActive: dbConfig.isActive,
             userId: dbConfig.userId,
             createdAt: dbConfig.createdAt,
@@ -74,24 +92,45 @@ export class DataSourceManager extends EventEmitter {
           
           await this.startSource(config);
         } catch (error) {
-          console.error(`Failed to start data source ${dbConfig.name} (ID: ${dbConfig.id}):`, error);
+          console.error(`❌ Failed to start data source ${dbConfig.name} (ID: ${dbConfig.id}):`, error);
+          // Continue with other sources even if one fails
         }
       }
 
       this.startStatsCollection();
       this.isInitialized = true;
-      console.log('Data Source Manager initialized successfully');
+      console.log('✅ Data Source Manager initialized successfully');
 
     } catch (error) {
-      console.error('Failed to initialize Data Source Manager:', error);
+      console.error('❌ Failed to initialize Data Source Manager:', error);
       throw error;
     }
   }
 
+  private async testDatabaseConnectivity(): Promise<void> {
+    try {
+      const testQuery = await db.query.dataSources.findMany({
+        limit: 1,
+      });
+      console.log('✅ Database connectivity test passed');
+    } catch (error) {
+      console.error('❌ Database connectivity test failed:', error);
+      throw new Error(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   public async startSource(config: DataSourceConfig): Promise<void> {
+    console.log(`\n🚀 Starting data source: ${config.name} (ID: ${config.id})`);
+    console.log(`🔌 Interface: ${config.interface.type}`);
+    console.log(`📡 Protocol: ${config.protocol.type}`);
+    console.log(`🏭 Data Source Type: ${config.dataSource.type}`);
+    console.log(`⚙️ Interface Config:`, JSON.stringify(config.interface.config, null, 2));
+    console.log(`📋 Protocol Config:`, JSON.stringify(config.protocol.config, null, 2));
+    
     try {
       // Stop existing source if running
       if (this.activeSources.has(config.id)) {
+        console.log(`⏹️ Stopping existing source ${config.id} before restart`);
         await this.stopSource(config.id);
       }
 
@@ -109,9 +148,15 @@ export class DataSourceManager extends EventEmitter {
 
       this.activeSources.set(config.id, activeSource);
 
+      console.log(`🏗️ Creating source instance for ${config.interface.type}/${config.protocol.type}`);
+      
       // Create and start the actual data source implementation
       const sourceInstance = await this.createSourceInstance(config);
+      
+      console.log(`🔧 Initializing source instance for: ${config.name}`);
       await sourceInstance.initialize();
+      
+      console.log(`▶️ Starting source instance for: ${config.name}`);
       await sourceInstance.start();
 
       activeSource.instance = sourceInstance;
@@ -119,9 +164,14 @@ export class DataSourceManager extends EventEmitter {
       activeSource.status.connectionStatus = 'connected';
 
       this.emit('sourceStarted', config.id);
-      console.log(`Data source ${config.name} (ID: ${config.id}) started successfully`);
+      console.log(`✅ Data source ${config.name} (ID: ${config.id}) started successfully\n`);
 
     } catch (error) {
+      console.error(`❌ Failed to start data source ${config.name} (ID: ${config.id}):`);
+      console.error(`   Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
+      console.error(`   Error message: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`   Stack trace:`, error instanceof Error ? error.stack : 'No stack trace available');
+      
       const activeSource = this.activeSources.get(config.id);
       if (activeSource) {
         activeSource.status.isRunning = false;
@@ -131,7 +181,14 @@ export class DataSourceManager extends EventEmitter {
       }
 
       this.emit('sourceError', config.id, error);
-      throw error;
+      
+      // Include more details in the thrown error
+      const detailedError = new Error(
+        `Failed to start ${config.interface.type}/${config.protocol.type} data source "${config.name}": ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+      throw detailedError;
     }
   }
 
@@ -140,6 +197,8 @@ export class DataSourceManager extends EventEmitter {
     if (!activeSource) {
       throw new Error(`Data source ${id} is not running`);
     }
+
+    console.log(`⏹️ Stopping data source: ${activeSource.config.name} (ID: ${id})`);
 
     try {
       // Stop the source instance
@@ -151,9 +210,10 @@ export class DataSourceManager extends EventEmitter {
       activeSource.status.connectionStatus = 'disconnected';
       
       this.emit('sourceStopped', id);
-      console.log(`Data source ${activeSource.config.name} (ID: ${id}) stopped`);
+      console.log(`✅ Data source ${activeSource.config.name} (ID: ${id}) stopped`);
 
     } catch (error) {
+      console.error(`❌ Error stopping data source ${activeSource.config.name}:`, error);
       activeSource.status.lastError = error instanceof Error ? error.message : 'Unknown error';
       activeSource.errorsCount++;
       throw error;
@@ -166,12 +226,14 @@ export class DataSourceManager extends EventEmitter {
       throw new Error(`Data source ${id} is not active`);
     }
 
-    console.log(`Restarting data source ${activeSource.config.name} (ID: ${id})`);
+    console.log(`🔄 Restarting data source ${activeSource.config.name} (ID: ${id})`);
     await this.stopSource(id);
     await this.startSource(activeSource.config);
   }
 
   public async removeSource(id: number): Promise<void> {
+    console.log(`🗑️ Removing data source (ID: ${id})`);
+    
     // Stop the source if it's running
     if (this.activeSources.has(id)) {
       await this.stopSource(id);
@@ -182,7 +244,7 @@ export class DataSourceManager extends EventEmitter {
     await db.delete(dataSources).where(eq(dataSources.id, id));
     
     this.emit('sourceRemoved', id);
-    console.log(`Data source ${id} removed`);
+    console.log(`✅ Data source ${id} removed`);
   }
 
   public getActiveSources(): Array<{ id: number; status: DataSourceRuntimeStatus }> {
@@ -220,36 +282,163 @@ export class DataSourceManager extends EventEmitter {
   }
 
   private async createSourceInstance(config: DataSourceConfig): Promise<any> {
-    console.log(`Creating source instance for protocol: ${config.protocol}`);
+    console.log(`🏭 Creating source instance for ${config.interface.type}/${config.protocol.type}`);
     
-    switch (config.protocol) {
-      case 'API':
-        return createApiSource(config);
-      case 'FILE':
-        return createFileSource(config);
-      case 'MODBUS':
-        return createModbusSource(config);
-      case 'MQTT':
-        return createMqttSource(config);
-      case 'NMEA':
-      case 'SERIAL':
-        return createSerialSource(config);
-      case 'TCP':
-        return createTcpSource(config);
-      case 'UDP':
-        return createUdpSource(config);
-      default:
-        throw new Error(`Unsupported protocol: ${config.protocol}`);
+    try {
+      // Create interface/protocol specific combinations
+      const interfaceProtocolKey = `${config.interface.type}_${config.protocol.type}`;
+      
+      switch (interfaceProtocolKey) {
+        case 'SERIAL_MODBUS_RTU':
+          console.log(`🔌 Creating Serial Modbus RTU source for: ${config.name}`);
+          return this.createSerialModbusSource(config);
+        
+        case 'TCP_MODBUS_TCP':
+          console.log(`🌐 Creating TCP Modbus TCP source for: ${config.name}`);
+          return this.createTcpModbusSource(config);
+        
+        case 'TCP_MQTT':
+          console.log(`📨 Creating TCP MQTT source for: ${config.name}`);
+          return this.createTcpMqttSource(config);
+        
+        case 'SERIAL_NMEA_0183':
+          console.log(`🛰️ Creating Serial NMEA source for: ${config.name}`);
+          return this.createSerialNmeaSource(config);
+        
+        case 'TCP_API_REST':
+          console.log(`📡 Creating TCP API REST source for: ${config.name}`);
+          return this.createTcpApiSource(config);
+        
+        case 'TCP_OPC_UA':
+          console.log(`🏭 Creating TCP OPC UA source for: ${config.name}`);
+          return this.createTcpOpcUaSource(config);
+        
+        case 'FILE_API_REST':
+          console.log(`📁 Creating File API source for: ${config.name}`);
+          return this.createFileApiSource(config);
+        
+        case 'UDP_NMEA_0183':
+          console.log(`📡 Creating UDP NMEA source for: ${config.name}`);
+          return this.createUdpNmeaSource(config);
+
+        // Legacy support - map old protocols to new structure
+        default:
+          // Try to handle legacy configurations
+          console.log(`⚠️ Using legacy compatibility mode for: ${interfaceProtocolKey}`);
+          return this.createLegacySource(config);
+      }
+    } catch (error) {
+      console.error(`❌ Error creating source instance for ${config.interface.type}/${config.protocol.type}:`, error);
+      
+      // Check if it's a module import error
+      if (error instanceof Error && error.message.includes('Cannot find module')) {
+        console.error(`   💡 Tip: Make sure all required npm packages are installed`);
+        console.error(`   💡 Try running: npm install mqtt modbus-serial serialport @serialport/parser-readline`);
+      }
+      
+      throw error;
     }
   }
 
+  // Helper methods for creating specific interface/protocol combinations
+  private async createSerialModbusSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createModbusSource(combinedConfig);
+  }
+
+  private async createTcpModbusSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createModbusSource(combinedConfig);
+  }
+
+  private async createTcpMqttSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createMqttSource(combinedConfig);
+  }
+
+  private async createSerialNmeaSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createSerialSource(combinedConfig);
+  }
+
+  private async createTcpApiSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createApiSource(combinedConfig);
+  }
+
+  private async createTcpOpcUaSource(config: DataSourceConfig) {
+    // For now, create a placeholder - you'll need to implement OPC UA source
+    const combinedConfig = this.combineConfigs(config);
+    console.log(`⚠️ OPC UA source not yet implemented, using TCP source as placeholder`);
+    return createTcpSource(combinedConfig);
+  }
+
+  private async createFileApiSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createFileSource(combinedConfig);
+  }
+
+  private async createUdpNmeaSource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    return createUdpSource(combinedConfig);
+  }
+
+  private async createLegacySource(config: DataSourceConfig) {
+    const combinedConfig = this.combineConfigs(config);
+    
+    // Try to determine the appropriate source based on protocol type
+    switch (config.protocol.type) {
+      case 'API_REST':
+        return createApiSource(combinedConfig);
+      case 'MQTT':
+        return createMqttSource(combinedConfig);
+      case 'MODBUS_TCP':
+      case 'MODBUS_RTU':
+        return createModbusSource(combinedConfig);
+      case 'NMEA_0183':
+        return createSerialSource(combinedConfig);
+      default:
+        // Fallback based on interface type
+        switch (config.interface.type) {
+          case 'TCP':
+            return createTcpSource(combinedConfig);
+          case 'UDP':
+            return createUdpSource(combinedConfig);
+          case 'SERIAL':
+            return createSerialSource(combinedConfig);
+          case 'FILE':
+            return createFileSource(combinedConfig);
+          default:
+            throw new Error(`Unable to create legacy source for ${config.interface.type}/${config.protocol.type}`);
+        }
+    }
+  }
+
+  // Helper method to combine interface and protocol configs into legacy format
+  private combineConfigs(config: DataSourceConfig): any {
+    return {
+      id: config.id,
+      name: config.name,
+      type: config.interface.type,
+      protocol: config.protocol.type,
+      config: {
+        ...config.interface.config,
+        ...config.protocol.config,
+        ...config.dataSource.customConfig,
+      },
+      isActive: config.isActive,
+      userId: config.userId,
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
+    };
+  }
+
   private startStatsCollection(): void {
+    console.log('📊 Starting stats collection...');
     this.statsInterval = setInterval(() => {
       // Update statistics for all active sources
       for (const [id, source] of this.activeSources) {
         if (source.status.isRunning) {
-          // Update last activity timestamp for running sources
-          // Actual throughput calculation would be based on the specific source implementation
           this.emit('sourceStats', {
             id,
             recordsProcessed: source.recordsProcessed,
@@ -262,7 +451,7 @@ export class DataSourceManager extends EventEmitter {
   }
 
   public async shutdown(): Promise<void> {
-    console.log('Shutting down Data Source Manager...');
+    console.log('🛑 Shutting down Data Source Manager...');
     
     if (this.statsInterval) {
       clearInterval(this.statsInterval);
@@ -271,7 +460,7 @@ export class DataSourceManager extends EventEmitter {
     // Stop all active sources
     const stopPromises = Array.from(this.activeSources.keys()).map(id => {
       return this.stopSource(id).catch(error => {
-        console.error(`Error stopping source ${id}:`, error);
+        console.error(`❌ Error stopping source ${id}:`, error);
       });
     });
 
@@ -280,6 +469,25 @@ export class DataSourceManager extends EventEmitter {
     this.removeAllListeners();
     this.isInitialized = false;
     
-    console.log('Data Source Manager shutdown complete');
+    console.log('✅ Data Source Manager shutdown complete');
+  }
+
+  // Debug method to get detailed status
+  public getDebugInfo(): any {
+    return {
+      isInitialized: this.isInitialized,
+      activeSourcesCount: this.activeSources.size,
+      activeSources: Array.from(this.activeSources.entries()).map(([id, source]) => ({
+        id,
+        name: source.config.name,
+        interface: source.config.interface.type,
+        protocol: source.config.protocol.type,
+        dataSourceType: source.config.dataSource.type,
+        status: source.status,
+        recordsProcessed: source.recordsProcessed,
+        errorsCount: source.errorsCount,
+        lastActivity: source.lastActivity,
+      })),
+    };
   }
 }

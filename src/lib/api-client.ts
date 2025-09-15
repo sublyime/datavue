@@ -1,52 +1,65 @@
-'use client';
-
+// src/lib/api-client.ts
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string = '/api') {
-    this.baseUrl = baseUrl;
-  }
-
-  async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const headers = new Headers(options.headers || {});
+    private baseURL = '/api';
     
-    console.log(`Making request to ${url} with headers:`, headers);
+    private async request(endpoint: string, options: RequestInit = {}): Promise<any> {
+        const url = `${this.baseURL}${endpoint}`;
+        
+        const token = this.getAuthToken();
+        
+        const config: RequestInit = {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` }),
+                ...options.headers,
+            },
+            credentials: 'include',
+            ...options,
+        };
 
-    try {
-      const response = await fetch(url, { ...options, headers, credentials: 'include' });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Invalid JSON response' }));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
-    } catch (error) {
-      console.error(`API request failed: ${error}`);
-      throw error;
+        const response = await fetch(url, config);
+        
+        if (response.status === 401) {
+            this.handleUnauthorized();
+            throw new Error('Unauthorized');
+        }
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return response.json();
     }
-  }
+    
+    private getAuthToken(): string | null {
+        return localStorage.getItem('session-token');
+    }
+    
+    private handleUnauthorized() {
+        localStorage.removeItem('session-token');
+        window.location.href = '/login';
+    }
+    
+    async login(email: string, password: string) {
+        return this.request('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+        });
+    }
 
-  // Auth
-  async login(email: string, password: string): Promise<{ user: any }> {
-    return this.request('/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-  }
+    async getCurrentUser() {
+        return this.request('/auth/me');
+    }
 
-  async logout(): Promise<void> {
-    await this.request('/auth/logout', { method: 'POST' });
-  }
-
-  async getCurrentUser(): Promise<{ user: any }> {
-    return this.request('/auth/me');
-  }
-
-  // Data Sources
-  async getDataSources(): Promise<any> {
-    return this.request('/data-sources');
-  }
+    async getDataSources() {
+        return this.request('/data-sources');
+    }
+    
+    async getDashboardStats() {
+        return this.request('/dashboard/stats');
+    }
+    
+    // Add other methods...
 }
 
 export const apiClient = new ApiClient();

@@ -1,3 +1,4 @@
+// src/app/(dashboard)/layout.tsx
 import { SidebarNav } from '@/components/sidebar-nav';
 import {
   Sidebar,

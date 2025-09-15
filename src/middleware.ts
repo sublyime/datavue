@@ -1,39 +1,47 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '@/middleware/auth';
-
-export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - /_next/static (static files)
-     * - /_next/image (image optimization files)
-     * - /favicon.ico (favicon file)
-     * - /login (login page)
-     * - /api/auth/login (login API endpoint)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|login|api/auth/login).*)'
-  ],
-};
+// src/middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { verifyAuthToken } from '@/lib/auth-utils';
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Check for session on all matched routes
-  const authResult = await authenticateRequest(request);
-
-  // If no session and not an auth API route, redirect to login
-  if (authResult.error && !pathname.startsWith('/api/auth')) {
-    const loginUrl = new URL('/login', request.url);
+    // Define protected routes
+    const protectedRoutes = ['/dashboard', '/api/data-sources', '/api/dashboard'];
+    const isProtectedRoute = protectedRoutes.some(route => 
+        request.nextUrl.pathname.startsWith(route)
+    );
     
-    // If it's an API call, return 401 Unauthorized
-    if (pathname.startsWith('/api')) {
-      return NextResponse.json({ error: authResult.error }, { status: 401 });
+    if (isProtectedRoute) {
+        // Check for auth token in cookies
+        const token = request.cookies.get('auth-token')?.value;
+        
+        if (!token) {
+            // Redirect to login for page routes
+            if (!request.nextUrl.pathname.startsWith('/api')) {
+                return NextResponse.redirect(new URL('/login', request.url));
+            }
+            // Return 401 for API routes
+            return NextResponse.json(
+                { error: 'Authentication required' },
+                { status: 401 }
+            );
+        }
+        
+        // Verify token
+        const user = await verifyAuthToken(token);
+        if (!user) {
+            if (!request.nextUrl.pathname.startsWith('/api')) {
+                return NextResponse.redirect(new URL('/login', request.url));
+            }
+            return NextResponse.json(
+                { error: 'Invalid token' },
+                { status: 401 }
+            );
+        }
     }
     
-    // For page navigations, redirect to the login page
-    return NextResponse.redirect(loginUrl);
-  }
-  
-  // If there is a session, continue
-  return NextResponse.next();
+    return NextResponse.next();
 }
+
+export const config = {
+    matcher: ['/dashboard/:path*', '/api/:path*']
+};

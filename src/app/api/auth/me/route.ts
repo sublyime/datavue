@@ -1,12 +1,14 @@
+
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '@/middleware/auth';
+import { getSession } from '@/middleware/auth';
 
 export async function GET(request: NextRequest) {
-  const authResult = await authenticateRequest(request);
-  
-  if (authResult.error) {
-    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  const session = await getSession(request);
+
+  if (!session) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  return NextResponse.json({ user: authResult.user });
+  // The session object contains the user payload, which we return as 'user'
+  return NextResponse.json({ user: session });
 }

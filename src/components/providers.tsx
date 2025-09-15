@@ -1,80 +1,77 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { apiClient } from '@/lib/api-client';
 
-export interface User {
+interface User {
   id: number;
-  email: string;
   name: string;
-  role: string;
-  isActive: boolean;
+  email: string;
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  checkAuth: () => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface ProvidersProps {
-  children: ReactNode;
-}
-
-function AuthProvider({ children }: ProvidersProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // Mock auth for now - replace with real API calls later
   useEffect(() => {
     console.log('AuthProvider initialized');
-    setTimeout(() => {
-      setUser({
-        id: 1,
-        email: 'admin@example.com',
-        name: 'Admin User',
-        role: 'ADMIN',
-        isActive: true
-      });
+    const checkUser = async () => {
+      if (pathname !== '/login') {
+        try {
+          const response = await apiClient.getCurrentUser();
+          setUser(response.user);
+        } catch (error) {
+          console.error('No active session', error);
+          setUser(null);
+          if (pathname !== '/login') {
+            router.push('/login');
+          }
+        }
+      }
       setLoading(false);
-    }, 500);
-  }, []);
+    };
+    checkUser();
+  }, [pathname, router]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
-    setTimeout(() => {
-      setUser({
-        id: 1,
-        email: email,
-        name: 'Admin User',
-        role: 'ADMIN',
-        isActive: true
-      });
+    try {
+      const response = await apiClient.login(email, password);
+      setUser(response.user);
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Login failed:', error);
+      throw error;
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const logout = async () => {
-    setUser(null);
-  };
-
-  const checkAuth = async () => {
-    setLoading(false);
-  };
-
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    checkAuth,
+    try {
+      await apiClient.logout();
+    } catch (error) {
+      console.error('Logout failed:', error);
+    } finally {
+      setUser(null);
+      router.push('/login');
+    }
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -86,13 +83,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
-
-// Main Providers component that wraps all providers
-export function Providers({ children }: ProvidersProps) {
-  return (
-    <AuthProvider>
-      {children}
-    </AuthProvider>
-  );
 }

@@ -1,3 +1,4 @@
+
 // src/middleware/auth.ts
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';

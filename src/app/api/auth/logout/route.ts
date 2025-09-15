@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sessions } from '@/lib/db/schema';
@@ -8,17 +9,22 @@ export async function POST(request: NextRequest) {
     const token = request.cookies.get('session-token')?.value;
 
     if (token) {
-      // Delete session from database
       await db.delete(sessions).where(eq(sessions.token, token));
     }
 
-    // Clear the cookie
-    const response = NextResponse.json({ message: 'Logged out successfully' });
-    response.cookies.delete('session-token');
+    const response = NextResponse.json({ message: 'Logged out' }, { status: 200 });
+
+    response.cookies.set('session-token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      expires: new Date(0),
+      path: '/',
+    });
 
     return response;
+
   } catch (error) {
     console.error('Logout error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

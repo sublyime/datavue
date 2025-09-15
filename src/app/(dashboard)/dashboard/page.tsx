@@ -6,9 +6,9 @@ import { Plus, Settings, TrendingUp, Database, Zap, MapPin } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MapPlaceholder } from '@/components/map-placeholder';
+import { RealInteractiveMap } from '@/components/real-interactive-map';
 import { DynamicChart } from '@/components/dynamic-chart';
-import { useAuth } from '@/components/providers'; // ✅ FIXED: Updated import path
+import { useAuth } from '@/components/providers';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -75,6 +75,48 @@ export default function DashboardPage() {
           latitude: 51.9244,
           longitude: 4.4777,
           connectionStatus: 'disconnected'
+        },
+        {
+          id: 4,
+          name: 'London Office',
+          description: 'Environmental monitoring',
+          interfaceType: 'TCP',
+          protocolType: 'MQTT',
+          dataSourceType: 'SENSOR',
+          isActive: true,
+          latitude: 51.5074,
+          longitude: -0.1278,
+          lastValue: 23.4,
+          lastUpdated: new Date().toISOString(),
+          connectionStatus: 'connected'
+        },
+        {
+          id: 5,
+          name: 'Tokyo Data Center',
+          description: 'Server monitoring',
+          interfaceType: 'TCP',
+          protocolType: 'API_REST',
+          dataSourceType: 'POWER_METER',
+          isActive: true,
+          latitude: 35.6762,
+          longitude: 139.6503,
+          lastValue: 87.2,
+          lastUpdated: new Date().toISOString(),
+          connectionStatus: 'connected'
+        },
+        {
+          id: 6,
+          name: 'Sydney Harbor Monitor',
+          description: 'Marine data collection',
+          interfaceType: 'TCP',
+          protocolType: 'API_REST',
+          dataSourceType: 'WEATHER_STATION',
+          isActive: true,
+          latitude: -33.8688,
+          longitude: 151.2093,
+          lastValue: 15.8,
+          lastUpdated: new Date().toISOString(),
+          connectionStatus: 'connected'
         }
       ];
       setDataSources(mockSources);
@@ -204,12 +246,12 @@ export default function DashboardPage() {
               <CardHeader>
                 <CardTitle>Global Data Sources</CardTitle>
                 <CardDescription>
-                  Geographic distribution of your monitoring infrastructure
+                  Interactive map - Click anywhere to add new data sources
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[400px]">
-                  <MapPlaceholder />
+                  <RealInteractiveMap />
                 </div>
               </CardContent>
             </Card>
@@ -245,14 +287,14 @@ export default function DashboardPage() {
         <TabsContent value="map" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Interactive Map</CardTitle>
+              <CardTitle>Interactive World Map</CardTitle>
               <CardDescription>
-                Click on markers to view detailed information about each data source
+                Click anywhere on the map to add a new data source at that location. Hover over existing markers for details.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-[600px]">
-                <MapPlaceholder />
+                <RealInteractiveMap/>
               </div>
             </CardContent>
           </Card>
@@ -334,6 +376,11 @@ export default function DashboardPage() {
                           </p>
                           {source.description && (
                             <p className="text-xs text-muted-foreground">{source.description}</p>
+                          )}
+                          {source.latitude && source.longitude && (
+                            <p className="text-xs text-muted-foreground font-mono">
+                              📍 {source.latitude.toFixed(4)}, {source.longitude.toFixed(4)}
+                            </p>
                           )}
                         </div>
                         <div className="flex items-center space-x-2">

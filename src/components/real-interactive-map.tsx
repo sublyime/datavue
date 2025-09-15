@@ -1,12 +1,16 @@
-// src/components/real-interactive-map.tsx
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Zap, Activity, AlertTriangle, CheckCircle2, XCircle, Plus, Settings, RefreshCw } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect, useCallback } from 'react';
+import { MapPin, Plus, Wifi, WifiOff, Activity, Trash2, Settings, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 interface DataSource {
   id: number;
@@ -16,597 +20,478 @@ interface DataSource {
   protocolType: string;
   dataSourceType: string;
   isActive: boolean;
-  latitude: number;
-  longitude: number;
-  lastValue?: number;
-  lastUpdated?: string;
+  latitude?: number;
+  longitude?: number;
   connectionStatus: 'connected' | 'disconnected' | 'error' | 'connecting';
-  unit?: string;
-  threshold?: { min: number; max: number };
+  lastUpdated?: string;
 }
 
-interface MapProps {
-  dataSources?: DataSource[];
-  onMarkerClick?: (dataSource: DataSource) => void;
-  onMapClick?: (lat: number, lng: number) => void;
-  selectedMarkerId?: number;
-  showAddMarker?: boolean;
+interface NewDataSourceDialog {
+  isOpen: boolean;
+  latitude: number;
+  longitude: number;
+}
+
+interface RealInteractiveMapProps {
   className?: string;
 }
 
-// SVG-based interactive world map
-const WorldMapSVG: React.FC<{
-  dataSources: DataSource[];
-  onMarkerClick: (source: DataSource) => void;
-  onMapClick?: (lat: number, lng: number) => void;
-  selectedMarkerId?: number;
-  showAddMarker?: boolean;
-}> = ({ dataSources, onMarkerClick, onMapClick, selectedMarkerId, showAddMarker }) => {
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  // Convert lat/lng to SVG coordinates (Mercator-like projection)
-  const latLngToSVG = (lat: number, lng: number): [number, number] => {
-    const x = ((lng + 180) / 360) * 1000;
-    const y = ((90 - lat) / 180) * 500;
-    return [x, y];
-  };
-
-  // Convert SVG coordinates back to lat/lng
-  const svgToLatLng = (x: number, y: number): [number, number] => {
-    const lng = (x / 1000) * 360 - 180;
-    const lat = 90 - (y / 500) * 180;
-    return [lat, lng];
-  };
-
-  const handleMapClick = (event: React.MouseEvent<SVGElement>) => {
-    if (!onMapClick) return;
-    
-    const svg = svgRef.current;
-    if (!svg) return;
-
-    const rect = svg.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 1000;
-    const y = ((event.clientY - rect.top) / rect.height) * 500;
-    
-    const [lat, lng] = svgToLatLng(x, y);
-    onMapClick(lat, lng);
-  };
-
-  const getMarkerColor = (source: DataSource): string => {
-    if (!source.isActive) return '#6b7280'; // gray
-    if (source.connectionStatus === 'error') return '#dc2626'; // red
-    if (source.connectionStatus === 'connected') {
-      if (source.lastValue && source.threshold) {
-        const { min, max } = source.threshold;
-        const value = source.lastValue;
-        if (value < min || value > max) return '#f59e0b'; // amber for out of range
-      }
-      return '#10b981'; // green for normal
-    }
-    return '#3b82f6'; // blue for connecting
-  };
-
-  const getMarkerIcon = (source: DataSource): string => {
-    switch (source.dataSourceType) {
-      case 'TEMPERATURE_SENSOR': return '🌡️';
-      case 'PRESSURE_TRANSMITTER': return '⚡';
-      case 'FLOW_METER': return '💧';
-      case 'POWER_METER': return '🔌';
-      case 'WEATHER_STATION': return '🌤️';
-      case 'SENSOR': return '📊';
-      default: return '📍';
-    }
-  };
-
-  return (
-    <svg 
-      ref={svgRef}
-      viewBox="0 0 1000 500" 
-      className="w-full h-full cursor-crosshair"
-      onClick={showAddMarker ? handleMapClick : undefined}
-    >
-      {/* Ocean background */}
-      <rect width="1000" height="500" fill="#e0f2fe" />
-      
-      {/* Grid lines */}
-      <defs>
-        <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-          <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#cbd5e1" strokeWidth="0.5" opacity="0.3"/>
-        </pattern>
-      </defs>
-      <rect width="1000" height="500" fill="url(#grid)" />
-      
-      {/* Continents - Simplified shapes */}
-      {/* North America */}
-      <path d="M 50 80 Q 100 60 200 70 Q 250 80 320 120 Q 300 150 280 200 Q 200 220 120 180 Q 80 140 50 80 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-      
-      {/* South America */}
-      <path d="M 220 250 Q 280 240 300 300 Q 290 360 280 400 Q 260 420 240 420 Q 220 380 215 350 Q 210 300 220 250 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-      
-      {/* Europe */}
-      <path d="M 450 80 Q 500 70 520 70 Q 540 80 540 100 Q 530 120 520 130 Q 490 135 470 140 Q 455 120 450 80 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-      
-      {/* Africa */}
-      <path d="M 480 140 Q 520 130 550 130 Q 570 150 570 200 Q 565 250 560 300 Q 545 320 530 320 Q 510 300 500 280 Q 485 220 480 140 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-      
-      {/* Asia */}
-      <path d="M 550 80 Q 650 70 700 70 Q 750 80 720 120 Q 680 140 680 180 Q 620 190 600 200 Q 580 170 550 150 Q 545 120 550 80 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-      
-      {/* Australia */}
-      <path d="M 700 300 Q 750 290 780 290 Q 790 310 790 330 Q 780 345 760 350 Q 730 345 720 340 Q 705 325 700 300 Z" 
-            fill="#10b981" opacity="0.6" stroke="#059669" strokeWidth="1"/>
-
-      {/* Major cities dots for reference */}
-      <circle cx="250" cy="150" r="2" fill="#374151" opacity="0.5" />
-      <text x="255" y="155" fontSize="8" fill="#374151" opacity="0.7">NYC</text>
-      
-      <circle cx="480" cy="110" r="2" fill="#374151" opacity="0.5" />
-      <text x="485" y="115" fontSize="8" fill="#374151" opacity="0.7">London</text>
-      
-      <circle cx="750" cy="320" r="2" fill="#374151" opacity="0.5" />
-      <text x="755" y="325" fontSize="8" fill="#374151" opacity="0.7">Sydney</text>
-
-      {/* Data source markers */}
-      {dataSources.map((source) => {
-        const [x, y] = latLngToSVG(source.latitude, source.longitude);
-        const isSelected = selectedMarkerId === source.id;
-        const markerColor = getMarkerColor(source);
-        
-        return (
-          <g key={source.id} transform={`translate(${x}, ${y})`}>
-            {/* Pulsing ring for active sources */}
-            {source.isActive && source.connectionStatus === 'connected' && (
-              <circle
-                r="15"
-                fill={markerColor}
-                opacity="0.3"
-                className="animate-ping"
-              />
-            )}
-            
-            {/* Selection ring */}
-            {isSelected && (
-              <circle
-                r="18"
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="2"
-                opacity="0.8"
-                className="animate-pulse"
-              />
-            )}
-            
-            {/* Main marker circle */}
-            <circle
-              r="12"
-              fill={markerColor}
-              stroke="white"
-              strokeWidth="2"
-              className={`cursor-pointer transition-all duration-200 ${
-                isSelected ? 'drop-shadow-lg' : 'hover:drop-shadow-md'
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onMarkerClick(source);
-              }}
-            />
-            
-            {/* Icon */}
-            <text
-              textAnchor="middle"
-              dy="0.3em"
-              fontSize="8"
-              fill="white"
-              className="pointer-events-none select-none"
-            >
-              {getMarkerIcon(source)}
-            </text>
-            
-            {/* Status indicator */}
-            <circle
-              cx="8"
-              cy="-8"
-              r="4"
-              fill={
-                source.connectionStatus === 'connected' ? '#10b981' :
-                source.connectionStatus === 'error' ? '#dc2626' :
-                source.connectionStatus === 'disconnected' ? '#6b7280' : '#3b82f6'
-              }
-              stroke="white"
-              strokeWidth="1"
-            />
-          </g>
-        );
-      })}
-      
-      {/* Coordinate lines */}
-      <line x1="0" y1="250" x2="1000" y2="250" stroke="#cbd5e1" strokeWidth="1" opacity="0.3" strokeDasharray="5,5" />
-      <line x1="500" y1="0" x2="500" y2="500" stroke="#cbd5e1" strokeWidth="1" opacity="0.3" strokeDasharray="5,5" />
-    </svg>
-  );
-};
-
-// Data source detail popup
-const DataSourcePopup: React.FC<{
-  dataSource: DataSource;
-  onClose: () => void;
-  position: { x: number; y: number };
-}> = ({ dataSource, onClose, position }) => {
-  const getValueStatus = (value?: number, threshold?: { min: number; max: number }) => {
-    if (!value || !threshold) return 'normal';
-    if (value < threshold.min || value > threshold.max) return 'warning';
-    return 'normal';
-  };
-
-  const valueStatus = getValueStatus(dataSource.lastValue, dataSource.threshold);
-
-  return (
-    <div
-      className="absolute bg-white rounded-lg shadow-lg border p-4 z-50 min-w-[280px] max-w-[320px]"
-      style={{
-        left: Math.min(position.x, window.innerWidth - 320),
-        top: Math.max(position.y - 200, 10),
-      }}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="font-semibold text-sm">{dataSource.name}</h3>
-          <p className="text-xs text-muted-foreground">{dataSource.description}</p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="h-6 w-6 p-0">
-          ×
-        </Button>
-      </div>
-
-      <div className="space-y-2 text-xs">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Type:</span>
-          <span>{dataSource.dataSourceType}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Protocol:</span>
-          <span>{dataSource.protocolType}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-muted-foreground">Status:</span>
-          <div className="flex items-center gap-1">
-            <Badge 
-              variant={dataSource.connectionStatus === 'connected' ? 'default' : 'secondary'}
-              className="text-xs"
-            >
-              {dataSource.connectionStatus}
-            </Badge>
-            <Badge 
-              variant={dataSource.isActive ? 'default' : 'outline'}
-              className="text-xs"
-            >
-              {dataSource.isActive ? 'Active' : 'Inactive'}
-            </Badge>
-          </div>
-        </div>
-        
-        {dataSource.lastValue !== undefined && (
-          <>
-            <hr className="my-2" />
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Current Value:</span>
-              <span className={`font-mono font-bold ${
-                valueStatus === 'warning' ? 'text-amber-600' : 'text-green-600'
-              }`}>
-                {dataSource.lastValue.toFixed(2)} {dataSource.unit}
-              </span>
-            </div>
-            {dataSource.threshold && (
-              <div className="text-xs text-muted-foreground">
-                Range: {dataSource.threshold.min}-{dataSource.threshold.max} {dataSource.unit}
-              </div>
-            )}
-            <div className="text-xs text-muted-foreground">
-              Updated: {dataSource.lastUpdated ? new Date(dataSource.lastUpdated).toLocaleTimeString() : 'N/A'}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="flex gap-2 mt-3">
-        <Button size="sm" className="flex-1 text-xs h-7">
-          <Settings className="h-3 w-3 mr-1" />
-          Config
-        </Button>
-        <Button size="sm" variant="outline" className="flex-1 text-xs h-7">
-          <Activity className="h-3 w-3 mr-1" />
-          Details
-        </Button>
-      </div>
-    </div>
-  );
-};
-
-// Legend component
-const MapLegend: React.FC = () => (
-  <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg p-3 text-xs shadow-lg">
-    <div className="font-semibold mb-2">Status Legend</div>
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-green-500 rounded-full" />
-        <span>Connected & Normal</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-amber-500 rounded-full" />
-        <span>Connected & Alert</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-red-500 rounded-full" />
-        <span>Error</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-gray-400 rounded-full" />
-        <span>Disconnected</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-blue-500 rounded-full" />
-        <span>Connecting</span>
-      </div>
-    </div>
-  </div>
-);
-
-// Main component
-export const RealInteractiveMap: React.FC<MapProps> = ({
-  dataSources = [],
-  onMarkerClick,
-  onMapClick,
-  selectedMarkerId,
-  showAddMarker = false,
-  className = '',
-}) => {
-  const [localDataSources, setLocalDataSources] = useState<DataSource[]>([]);
-  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null);
-  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+// Named export function
+export function RealInteractiveMap({ className }: RealInteractiveMapProps) {
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
-  const { toast } = useToast();
+  const [newSourceDialog, setNewSourceDialog] = useState<NewDataSourceDialog>({
+    isOpen: false,
+    latitude: 0,
+    longitude: 0
+  });
+  const [newSource, setNewSource] = useState({
+    name: '',
+    description: '',
+    interfaceType: 'TCP',
+    protocolType: 'API_REST',
+    dataSourceType: 'SENSOR'
+  });
 
-  // Load data sources from API or use provided ones
+  // Mock data sources for demonstration (since API endpoints don't exist yet)
   useEffect(() => {
-    const loadDataSources = async () => {
-      if (dataSources.length > 0) {
-        setLocalDataSources(dataSources);
-        setLoading(false);
-        return;
+    const mockSources: DataSource[] = [
+      {
+        id: 1,
+        name: 'Houston Plant Sensor',
+        description: 'Temperature monitoring',
+        interfaceType: 'TCP',
+        protocolType: 'MODBUS_TCP',
+        dataSourceType: 'SENSOR',
+        isActive: true,
+        latitude: 29.7604,
+        longitude: -95.3698,
+        connectionStatus: 'connected',
+        lastUpdated: new Date().toISOString()
+      },
+      {
+        id: 2,
+        name: 'Singapore Terminal',
+        description: 'Pressure monitoring',
+        interfaceType: 'TCP',
+        protocolType: 'API_REST',
+        dataSourceType: 'POWER_METER',
+        isActive: true,
+        latitude: 1.3521,
+        longitude: 103.8198,
+        connectionStatus: 'connected',
+        lastUpdated: new Date().toISOString()
+      },
+      {
+        id: 3,
+        name: 'Rotterdam Terminal',
+        description: 'Flow monitoring',
+        interfaceType: 'SERIAL',
+        protocolType: 'MODBUS_RTU',
+        dataSourceType: 'WEATHER_STATION',
+        isActive: false,
+        latitude: 51.9244,
+        longitude: 4.4777,
+        connectionStatus: 'disconnected'
+      },
+      {
+        id: 4,
+        name: 'London Office',
+        description: 'Environmental monitoring',
+        interfaceType: 'TCP',
+        protocolType: 'MQTT',
+        dataSourceType: 'SENSOR',
+        isActive: true,
+        latitude: 51.5074,
+        longitude: -0.1278,
+        connectionStatus: 'connected'
+      },
+      {
+        id: 5,
+        name: 'Tokyo Data Center',
+        description: 'Server monitoring',
+        interfaceType: 'TCP',
+        protocolType: 'API_REST',
+        dataSourceType: 'POWER_METER',
+        isActive: true,
+        latitude: 35.6762,
+        longitude: 139.6503,
+        connectionStatus: 'connected'
       }
+    ];
+    
+    setTimeout(() => {
+      setDataSources(mockSources);
+      setLoading(false);
+    }, 1000);
+  }, []);
 
-      try {
-        setLoading(true);
-        const response = await fetch('/api/data-sources');
-        if (response.ok) {
-          const result = await response.json();
-          const sources = result.data || [];
-          
-          // Add mock coordinates for sources without them
-          const sourcesWithCoords = sources.map((source: any, index: number) => ({
-            ...source,
-            latitude: source.latitude || (Math.random() * 160 - 80), // -80 to 80
-            longitude: source.longitude || (Math.random() * 360 - 180), // -180 to 180
-            lastValue: source.lastValue || Math.random() * 100,
-            unit: source.unit || getUnitForType(source.dataSourceType),
-            threshold: source.threshold || getThresholdForType(source.dataSourceType),
-            lastUpdated: source.lastUpdated || new Date().toISOString(),
-          }));
-          
-          setLocalDataSources(sourcesWithCoords);
-        } else {
-          // Fallback to mock data
-          setLocalDataSources(generateMockDataSources());
-        }
-      } catch (error) {
-        console.error('Failed to load data sources:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load data sources, using mock data',
-          variant: 'destructive',
-        });
-        setLocalDataSources(generateMockDataSources());
-      } finally {
-        setLoading(false);
-      }
+  // Convert coordinates to screen position for simplified map
+  const coordinateToScreen = useCallback((lat: number, lng: number, width: number, height: number) => {
+    // Simple projection - in a real app you'd use proper map projection
+    const x = ((lng + 180) / 360) * width;
+    const y = ((90 - lat) / 180) * height;
+    return { x, y };
+  }, []);
+
+  const handleMapClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    // Convert screen coordinates back to lat/lng
+    const lng = (x / rect.width) * 360 - 180;
+    const lat = 90 - (y / rect.height) * 180;
+    
+    setNewSourceDialog({
+      isOpen: true,
+      latitude: lat,
+      longitude: lng
+    });
+  }, []);
+
+  const handleAddDataSource = () => {
+    if (!newSource.name.trim()) return;
+
+    const newId = Math.max(...dataSources.map(s => s.id), 0) + 1;
+    const source: DataSource = {
+      id: newId,
+      name: newSource.name,
+      description: newSource.description,
+      interfaceType: newSource.interfaceType,
+      protocolType: newSource.protocolType,
+      dataSourceType: newSource.dataSourceType,
+      isActive: true,
+      latitude: newSourceDialog.latitude,
+      longitude: newSourceDialog.longitude,
+      connectionStatus: 'connected',
+      lastUpdated: new Date().toISOString()
     };
 
-    loadDataSources();
-
-    // Set up real-time updates
-    const interval = setInterval(() => {
-      setLocalDataSources(prev => prev.map(source => ({
-        ...source,
-        lastValue: source.connectionStatus === 'connected' ? 
-          (source.lastValue || 0) + (Math.random() - 0.5) * 5 : source.lastValue,
-        lastUpdated: source.connectionStatus === 'connected' ? 
-          new Date().toISOString() : source.lastUpdated,
-        connectionStatus: Math.random() > 0.95 ? 
-          (source.connectionStatus === 'connected' ? 'error' : 'connected') : 
-          source.connectionStatus,
-      })));
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [dataSources, toast]);
-
-  const handleMarkerClick = (dataSource: DataSource, event?: React.MouseEvent) => {
-    if (event) {
-      setPopupPosition({ x: event.clientX, y: event.clientY });
-    }
-    setSelectedSource(dataSource);
-    onMarkerClick?.(dataSource);
+    setDataSources(prev => [...prev, source]);
+    setNewSourceDialog({ isOpen: false, latitude: 0, longitude: 0 });
+    setNewSource({
+      name: '',
+      description: '',
+      interfaceType: 'TCP',
+      protocolType: 'API_REST',
+      dataSourceType: 'SENSOR'
+    });
   };
 
-  const handleMapClick = (lat: number, lng: number) => {
-    setSelectedSource(null);
-    onMapClick?.(lat, lng);
-    
-    if (showAddMarker) {
-      toast({
-        title: 'Add Data Source',
-        description: `Clicked at coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-      });
+  const handleDeleteDataSource = (sourceId: number) => {
+    if (!confirm('Are you sure you want to delete this data source?')) return;
+    setDataSources(prev => prev.filter(s => s.id !== sourceId));
+  };
+
+  const handleToggleActive = (sourceId: number) => {
+    setDataSources(prev => prev.map(s => 
+      s.id === sourceId 
+        ? { ...s, isActive: !s.isActive, connectionStatus: s.isActive ? 'disconnected' as const : 'connected' as const }
+        : s
+    ));
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'connected': return <Wifi className="h-3 w-3 text-green-500" />;
+      case 'connecting': return <Activity className="h-3 w-3 text-yellow-500 animate-pulse" />;
+      case 'error': return <WifiOff className="h-3 w-3 text-red-500" />;
+      default: return <WifiOff className="h-3 w-3 text-gray-500" />;
     }
   };
 
   if (loading) {
     return (
-      <div className={`relative w-full h-full bg-slate-100 rounded-lg flex items-center justify-center ${className}`}>
+      <div className={cn("flex items-center justify-center h-full bg-muted/50 rounded-lg", className)}>
         <div className="text-center">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2 text-muted-foreground" />
-          <p className="text-muted-foreground">Loading map data...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-sm text-muted-foreground">Loading data sources...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`relative w-full h-full bg-slate-50 rounded-lg overflow-hidden ${className}`}>
-      <WorldMapSVG
-        dataSources={localDataSources}
-        onMarkerClick={handleMarkerClick}
-        onMapClick={showAddMarker ? handleMapClick : undefined}
-        selectedMarkerId={selectedMarkerId}
-        showAddMarker={showAddMarker}
-      />
-      
-      <MapLegend />
-      
-      {/* Data source count */}
-      <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-2 text-sm font-medium shadow-lg">
-        {localDataSources.length} Data Sources
-      </div>
-      
-      {/* Add marker hint */}
-      {showAddMarker && (
-        <div className="absolute top-4 right-4 bg-blue-100 text-blue-800 rounded-lg px-3 py-2 text-sm shadow-lg">
-          <Plus className="h-4 w-4 inline mr-1" />
-          Click anywhere to add a data source
-        </div>
-      )}
+    <div className={cn("relative w-full h-full", className)}>
+      {/* Simple World Map Background */}
+      <div 
+        className="w-full h-full bg-gradient-to-b from-blue-100 to-green-100 rounded-lg cursor-crosshair relative overflow-hidden"
+        onClick={handleMapClick}
+        style={{
+          backgroundImage: `
+            radial-gradient(circle at 20% 30%, rgba(34, 197, 94, 0.3) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.3) 0%, transparent 50%),
+            radial-gradient(circle at 60% 80%, rgba(168, 85, 247, 0.2) 0%, transparent 50%)
+          `
+        }}
+      >
+        {/* Grid lines for reference */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
+          <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeWidth="1"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+        </svg>
 
-      {/* Popup */}
-      {selectedSource && (
-        <DataSourcePopup
-          dataSource={selectedSource}
-          onClose={() => setSelectedSource(null)}
-          position={popupPosition}
-        />
-      )}
+        {/* Instructions */}
+        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur rounded-lg p-3 text-sm">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-primary" />
+            <span className="font-medium">Click anywhere to add a data source</span>
+          </div>
+        </div>
+
+        {/* Data Source Markers */}
+        {dataSources
+          .filter(source => source.latitude !== undefined && source.longitude !== undefined)
+          .map((source) => {
+            const containerRect = { width: 800, height: 600 }; // Approximate container size
+            const position = coordinateToScreen(
+              source.latitude!,
+              source.longitude!,
+              containerRect.width,
+              containerRect.height
+            );
+
+            return (
+              <div
+                key={source.id}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
+                style={{
+                  left: `${(position.x / containerRect.width) * 100}%`,
+                  top: `${(position.y / containerRect.height) * 100}%`
+                }}
+              >
+                {/* Marker */}
+                <div className={cn(
+                  "w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110",
+                  source.isActive 
+                    ? source.connectionStatus === 'connected' 
+                      ? "bg-green-500" 
+                      : "bg-yellow-500"
+                    : "bg-gray-400"
+                )}>
+                  {getStatusIcon(source.connectionStatus)}
+                </div>
+
+                {/* Popup on hover */}
+                <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  <Card className="w-64 shadow-lg">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm">{source.name}</CardTitle>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={source.isActive ? "default" : "secondary"}>
+                            {source.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Badge 
+                            variant={
+                              source.connectionStatus === 'connected' ? "default" :
+                              source.connectionStatus === 'error' ? "destructive" : "secondary"
+                            }
+                          >
+                            {source.connectionStatus}
+                          </Badge>
+                        </div>
+                      </div>
+                      {source.description && (
+                        <p className="text-xs text-muted-foreground">{source.description}</p>
+                      )}
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                        <div>
+                          <span className="text-muted-foreground">Interface:</span>
+                          <p className="font-medium">{source.interfaceType}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Protocol:</span>
+                          <p className="font-medium">{source.protocolType}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Type:</span>
+                          <p className="font-medium">{source.dataSourceType}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Location:</span>
+                          <p className="font-mono text-xs">
+                            {source.latitude?.toFixed(4)}, {source.longitude?.toFixed(4)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pointer-events-auto">
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant={source.isActive ? "destructive" : "default"}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleActive(source.id);
+                            }}
+                          >
+                            <Power className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log('Edit source:', source.id);
+                            }}
+                          >
+                            <Settings className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDataSource(source.id);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+
+      {/* Summary Stats */}
+      <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur rounded-lg p-3">
+        <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+            <span>{dataSources.filter(s => s.connectionStatus === 'connected').length} Connected</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+            <span>{dataSources.filter(s => !s.isActive).length} Inactive</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <MapPin className="h-3 w-3 text-primary" />
+            <span>{dataSources.length} Total</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Data Source Dialog */}
+      <Dialog open={newSourceDialog.isOpen} onOpenChange={(open) => 
+        setNewSourceDialog(prev => ({ ...prev, isOpen: open }))
+      }>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Data Source</DialogTitle>
+            <DialogDescription>
+              Create a new data source at coordinates ({newSourceDialog.latitude.toFixed(4)}, {newSourceDialog.longitude.toFixed(4)})
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name *</Label>
+              <Input
+                id="name"
+                value={newSource.name}
+                onChange={(e) => setNewSource(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Enter data source name"
+                required
+              />
+            </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newSource.description}
+                onChange={(e) => setNewSource(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Enter description (optional)"
+                rows={2}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="interface">Interface</Label>
+                <Select 
+                  value={newSource.interfaceType} 
+                  onValueChange={(value) => setNewSource(prev => ({ ...prev, interfaceType: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TCP">TCP</SelectItem>
+                    <SelectItem value="UDP">UDP</SelectItem>
+                    <SelectItem value="SERIAL">Serial</SelectItem>
+                    <SelectItem value="FILE">File</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="protocol">Protocol</Label>
+                <Select 
+                  value={newSource.protocolType} 
+                  onValueChange={(value) => setNewSource(prev => ({ ...prev, protocolType: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="API_REST">REST API</SelectItem>
+                    <SelectItem value="MQTT">MQTT</SelectItem>
+                    <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
+                    <SelectItem value="MODBUS_RTU">Modbus RTU</SelectItem>
+                    <SelectItem value="OPC_UA">OPC UA</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="type">Data Source Type</Label>
+              <Select 
+                value={newSource.dataSourceType} 
+                onValueChange={(value) => setNewSource(prev => ({ ...prev, dataSourceType: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SENSOR">Sensor</SelectItem>
+                  <SelectItem value="POWER_METER">Power Meter</SelectItem>
+                  <SelectItem value="WEATHER_STATION">Weather Station</SelectItem>
+                  <SelectItem value="PLC">PLC</SelectItem>
+                  <SelectItem value="CUSTOM">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewSourceDialog(prev => ({ ...prev, isOpen: false }))}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddDataSource} disabled={!newSource.name.trim()}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Data Source
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
-};
+}
 
-// Helper functions
-const getUnitForType = (type: string): string => {
-  switch (type) {
-    case 'TEMPERATURE_SENSOR': return '°C';
-    case 'PRESSURE_TRANSMITTER': return 'bar';
-    case 'FLOW_METER': return 'L/min';
-    case 'POWER_METER': return 'kW';
-    case 'WEATHER_STATION': return '°C';
-    default: return '';
-  }
-};
-
-const getThresholdForType = (type: string): { min: number; max: number } => {
-  switch (type) {
-    case 'TEMPERATURE_SENSOR': return { min: 10, max: 40 };
-    case 'PRESSURE_TRANSMITTER': return { min: 0.5, max: 2.5 };
-    case 'FLOW_METER': return { min: 80, max: 200 };
-    case 'POWER_METER': return { min: 800, max: 1600 };
-    case 'WEATHER_STATION': return { min: -10, max: 50 };
-    default: return { min: 0, max: 100 };
-  }
-};
-
-const generateMockDataSources = (): DataSource[] => [
-  {
-    id: 1,
-    name: 'Houston Refinery Plant',
-    description: 'Main temperature sensor',
-    interfaceType: 'TCP',
-    protocolType: 'MODBUS_TCP',
-    dataSourceType: 'TEMPERATURE_SENSOR',
-    isActive: true,
-    latitude: 29.7604,
-    longitude: -95.3698,
-    lastValue: 75.2,
-    lastUpdated: new Date().toISOString(),
-    connectionStatus: 'connected',
-    unit: '°F',
-    threshold: { min: 60, max: 85 }
-  },
-  {
-    id: 2,
-    name: 'Singapore Terminal',
-    description: 'Pressure monitoring system',
-    interfaceType: 'TCP',
-    protocolType: 'API_REST',
-    dataSourceType: 'PRESSURE_TRANSMITTER',
-    isActive: true,
-    latitude: 1.3521,
-    longitude: 103.8198,
-    lastValue: 1.8,
-    lastUpdated: new Date().toISOString(),
-    connectionStatus: 'connected',
-    unit: 'bar',
-    threshold: { min: 0.5, max: 2.5 }
-  },
-  {
-    id: 3,
-    name: 'Rotterdam Port',
-    description: 'Flow monitoring station',
-    interfaceType: 'SERIAL',
-    protocolType: 'MODBUS_RTU',
-    dataSourceType: 'FLOW_METER',
-    isActive: true,
-    latitude: 51.9244,
-    longitude: 4.4777,
-    lastValue: 125.6,
-    lastUpdated: new Date().toISOString(),
-    connectionStatus: 'error',
-    unit: 'L/min',
-    threshold: { min: 80, max: 200 }
-  },
-  {
-    id: 4,
-    name: 'Lagos Terminal',
-    description: 'Power consumption monitor',
-    interfaceType: 'TCP',
-    protocolType: 'OPC_UA',
-    dataSourceType: 'POWER_METER',
-    isActive: true,
-    latitude: 6.5244,
-    longitude: 3.3792,
-    lastValue: 1250.0,
-    lastUpdated: new Date().toISOString(),
-    connectionStatus: 'connected',
-    unit: 'kW',
-    threshold: { min: 800, max: 1600 }
-  },
-  {
-    id: 5,
-    name: 'Sydney Harbor',
-    description: 'Weather monitoring station',
-    interfaceType: 'UDP',
-    protocolType: 'NMEA_0183',
-    dataSourceType: 'WEATHER_STATION',
-    isActive: false,
-    latitude: -33.8688,
-    longitude: 151.2093,
-    lastValue: 22.5,
-    lastUpdated: new Date(Date.now() - 300000).toISOString(),
-    connectionStatus: 'disconnected',
-    unit: '°C',
-    threshold: { min: 10, max: 40 }
-  }
-];
-
+// Default export as well for flexibility
 export default RealInteractiveMap;

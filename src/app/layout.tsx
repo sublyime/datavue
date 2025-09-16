@@ -1,13 +1,14 @@
+// src/app/layout.tsx
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import { AuthProvider } from '@/components/providers';
 import './globals.css';
+import { AuthProvider } from '@/components/providers';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'DataVue - Visual Historian',
-  description: 'Real-time data visualization and monitoring dashboard',
+  description: 'Industrial data visualization platform',
 };
 
 export default function RootLayout({

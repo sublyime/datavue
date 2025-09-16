@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -17,7 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSupabase } from '@/components/providers';
+import { useSupabase, useAuth } from '@/components/providers';
 import {
   SidebarContent,
   SidebarGroup,
@@ -125,20 +125,9 @@ function isNavItemWithSub(item: NavItem): item is NavItemWithSub {
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const supabase = useSupabase() as any;
-  const [user, setUser] = useState<any>(null);
+  const supabase = useSupabase();
+  const { user, loading } = useAuth(); // Use useAuth hook
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (data) {
-        setUser(data.user);
-      }
-    };
-
-    fetchUser();
-  }, [supabase]);
 
   const toggleGroup = (groupTitle: string) => {
     setOpenGroups(prev => ({
@@ -157,7 +146,7 @@ export function SidebarNav() {
     }
   };
 
-  if (!user) {
+  if (loading || !user) {
     return null; // Don't render sidebar if not authenticated
   }
 
@@ -243,7 +232,7 @@ export function SidebarNav() {
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{user.email}</p>
-                <p className="text-xs text-muted-foreground truncate">Role</p>
+                <p className="text-xs text-muted-foreground truncate">Admin</p>
               </div>
             </div>
           </SidebarMenuItem>

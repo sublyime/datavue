@@ -1,26 +1,28 @@
-// src/app/(dashboard)/layout.tsx
-import { SidebarNav } from '@/components/sidebar-nav';
-import {
-  Sidebar,
-  SidebarInset,
-  SidebarProvider,
-  SidebarRail,
-} from '@/components/ui/sidebar';
+// src/app/layout.tsx
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { AuthProvider } from '@/components/providers';
 
-export default function DashboardLayout({
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'DataVue - Visual Historian',
+  description: 'Industrial data visualization platform',
+};
+
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
-      <Sidebar>
-        <SidebarNav />
-        <SidebarRail />
-      </Sidebar>
-      <SidebarInset>
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+    <html lang="en">
+      <body className={inter.className}>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
+    </html>
   );
 }

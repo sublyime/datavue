@@ -2,24 +2,33 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Settings, TrendingUp, Database, Zap } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { RealTimeChart } from '@/components/real-time-chart';
-import { useSupabase } from '@/components/providers';
-import { DataSource } from '@/lib/types/data-sources'; // Ensure this path is correct
+import { useAuth } from '@/components/providers'; // Changed from useSupabase
 import dynamic from 'next/dynamic';
 
 const MapContent = dynamic(() => import('@/components/map-content'), {
   ssr: false,
 });
 
+interface DataSource {
+  id: number;
+  name: string;
+  description?: string;
+  interfaceType: string;
+  protocolType: string;
+  dataSourceType: string;
+  isActive: boolean;
+  latitude?: number;
+  longitude?: number;
+  connectionStatus: 'connected' | 'disconnected' | 'error' | 'connecting';
+  lastUpdated?: string;
+}
+
 export default function DashboardPage() {
-  const supabase = useSupabase() as any;
+  const { user, loading } = useAuth(); // Use useAuth instead of useSupabase
   const router = useRouter();
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -27,26 +36,43 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const fetchUserAndData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    if (!loading && !user) {
+      router.push('/login');
+      return;
+    }
 
-      if (!user) {
-        router.push('/login');
-        return;
-      }
-
-      // Fetch data sources or other relevant data
-      const { data, error } = await supabase.from('data_sources').select('*');
-      if (error) {
-        console.error('Error fetching data sources:', error);
-      } else {
-        setDataSources(data || []);
-      }
-      setLoading(false);
-    };
-
-    fetchUserAndData();
-  }, [supabase, router]);
+    if (user) {
+      // Mock data for now - replace with actual API call
+      setDataSources([
+        {
+          id: 1,
+          name: 'Houston Plant',
+          description: 'Main production facility',
+          interfaceType: 'TCP',
+          protocolType: 'Modbus',
+          dataSourceType: 'PLC',
+          isActive: true,
+          latitude: 29.7604,
+          longitude: -95.3698,
+          connectionStatus: 'connected',
+          lastUpdated: new Date().toISOString(),
+        },
+        {
+          id: 2,
+          name: 'Singapore Terminal',
+          description: 'Asian operations center',
+          interfaceType: 'MQTT',
+          protocolType: 'JSON',
+          dataSourceType: 'IoT',
+          isActive: true,
+          latitude: 1.3521,
+          longitude: 103.8198,
+          connectionStatus: 'connected',
+          lastUpdated: new Date().toISOString(),
+        },
+      ]);
+    }
+  }, [user, loading, router]);
 
   if (loading) {
     return (
@@ -56,11 +82,20 @@ export default function DashboardPage() {
     );
   }
 
+  if (!user) {
+    return null; // Will redirect to login
+  }
+
   return (
     <div className="h-full">
       <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
         <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+            <p className="text-muted-foreground">
+              Welcome back, {user.email}
+            </p>
+          </div>
           <div className="hidden md:flex items-center space-x-2">
             <Button>
               <Plus className="mr-2 h-4 w-4" /> Add New Source

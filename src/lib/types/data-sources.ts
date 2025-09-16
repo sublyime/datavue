@@ -1,39 +1,22 @@
-// src/lib/types/data-sources.ts
-export interface DataSourceStatusUI {
-    id: number;
-    name: string;
-    description?: string;
-    interfaceType: string;
-    protocolType: string;
-    dataSourceType: string;
-    isRunning: boolean;
-    connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'error';
-    lastActivity?: Date;
-    recordsProcessed: number;
-    errorsCount: number;
-    lastError?: string;
-    isActive: boolean;
-    latitude?: number;
-    longitude?: number;
-    createdAt: Date;
-    updatedAt: Date;
+export interface DataSource {
+  id: number;
+  name: string;
+  description?: string;
+  interfaceType: string;
+  protocolType: string;
+  dataSourceType: string;
+  isActive: boolean;
+  latitude?: number;
+  longitude?: number;
+  connectionStatus: 'connected' | 'disconnected' | 'error' | 'connecting';
+  lastUpdated?: string;
+  interfaceConfig?: any;
+  protocolConfig?: any;
+  customConfig?: any;
+  threshold?: {
+    min?: number;
+    max?: number;
+  };
+  lastValue?: number;
+  unit?: string;
 }
-
-export interface DataSourceManagerStats {
-    dataSources: DataSourceStatusUI[];
-    summary: {
-        total: number;
-        active: number;
-        connected: number;
-        errors: number;
-    };
-    debugInfo?: any;
-}
-
-export interface DataSourceAction {
-    action: 'start' | 'stop' | 'restart' | 'remove';
-    sourceId?: number;
-    config?: any;
-}
-
-export type DataSourceConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'error';

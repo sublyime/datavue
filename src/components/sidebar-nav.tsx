@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -17,7 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/components/providers';
+import { useSupabase } from '@/components/providers';
 import {
   SidebarContent,
   SidebarGroup,
@@ -125,8 +125,20 @@ function isNavItemWithSub(item: NavItem): item is NavItemWithSub {
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const supabase = useSupabase() as any;
+  const [user, setUser] = useState<any>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (data) {
+        setUser(data.user);
+      }
+    };
+
+    fetchUser();
+  }, [supabase]);
 
   const toggleGroup = (groupTitle: string) => {
     setOpenGroups(prev => ({
@@ -137,7 +149,7 @@ export function SidebarNav() {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      await supabase.auth.signOut();
     } catch (error) {
       console.error('Logout failed:', error);
       // Still redirect even if logout API fails
@@ -226,12 +238,12 @@ export function SidebarNav() {
               <Avatar className="h-8 w-8">
                 <AvatarImage src={user.email} />
                 <AvatarFallback>
-                  {user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
+                  {user.email?.charAt(0).toUpperCase() || 'U'}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user.role}</p>
+                <p className="text-sm font-medium truncate">{user.email}</p>
+                <p className="text-xs text-muted-foreground truncate">Role</p>
               </div>
             </div>
           </SidebarMenuItem>
